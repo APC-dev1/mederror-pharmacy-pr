@@ -1,0 +1,2729 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบบันทึกการจัดยา & Mederror ห้องยา | Pharmacy System</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- React & ReactDOM (Production) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel for in-browser JSX parsing -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  
+  <!-- SheetJS (xlsx) for instant Excel Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      font-family: 'Sarabun', sans-serif;
+      background-color: #f8fafc;
+    }
+    h1, h2, h3, h4, h5, h6, .font-prompt {
+      font-family: 'Prompt', 'Sarabun', sans-serif;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; font-size: 11pt; }
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Staff list matching user's sheet
+    const DEFAULT_STAFF = [
+      { id: 'staff-1', fullName: 'นายสิทธิศักดิ์ คำนุชิต', shortName: 'สิทธิศักดิ์', role: 'เจ้าพนักงานเภสัชกรรม', canDispense: true, canKey: false, color: '#0284c7' },
+      { id: 'staff-2', fullName: 'นายธรพล แสงขาน', shortName: 'ธรพล', role: 'เจ้าพนักงานเภสัชกรรม', canDispense: true, canKey: false, color: '#0d9488' },
+      { id: 'staff-3', fullName: 'นางสาวอรุณี ศรีบุรินทร์', shortName: 'อรุณี', role: 'เจ้าพนักงานเภสัชกรรม', canDispense: true, canKey: true, color: '#8b5cf6' },
+      { id: 'staff-4', fullName: 'นางสาวจุฑามาศ ฤทธิยา', shortName: 'จุฑามาศ', role: 'เจ้าพนักงานเภสัชกรรม', canDispense: true, canKey: true, color: '#ec4899' },
+      { id: 'staff-5', fullName: 'นางสาวยุวดี วันทองสุข', shortName: 'ยุวดี', role: 'เจ้าพนักงานเภสัชกรรม', canDispense: true, canKey: true, color: '#f59e0b' }
+    ];
+
+    const DEFAULT_ERROR_TYPES = {
+      dispensing: [
+        { id: 'wrong_drug', name: 'จัดยาผิดชนิด' },
+        { id: 'wrong_strength', name: 'จัดยาผิดความแรง' },
+        { id: 'incomplete_pills', name: 'จัดยาไม่ครบ(เม็ด)' },
+        { id: 'incomplete_basket', name: 'จัดยาไม่ครบ(ยาในตะกร้า)' }
+      ],
+      keying: [
+        { id: 'key_wrong_drug', name: 'คีย์ยาผิดชนิด' },
+        { id: 'key_wrong_qty', name: 'คีย์ยาไม่ครบจำนวน' },
+        { id: 'key_missing_item', name: 'คีย์ยาไม่ครบจำนวนรายการ' },
+        { id: 'key_wrong_sig', name: 'คีย์วิธีบริหารยาผิด' }
+      ]
+    };
+
+    const DEFAULT_DISPENSING = [
+      { id: 'd-1', date: '2026-11-02', ipdCount: 10, opdCount: 61, staffCounts: { 'staff-1': 0, 'staff-2': 31, 'staff-3': 17, 'staff-4': 9, 'staff-5': 5 } },
+      { id: 'd-2', date: '2026-11-03', ipdCount: 4, opdCount: 50, staffCounts: { 'staff-1': 12, 'staff-2': 27, 'staff-3': 10, 'staff-4': 2, 'staff-5': 0 } },
+      { id: 'd-3', date: '2026-11-04', ipdCount: 6, opdCount: 112, staffCounts: { 'staff-1': 30, 'staff-2': 42, 'staff-3': 16, 'staff-4': 13, 'staff-5': 0 } },
+      { id: 'd-4', date: '2026-11-05', ipdCount: 6, opdCount: 96, staffCounts: { 'staff-1': 33, 'staff-2': 33, 'staff-3': 18, 'staff-4': 9, 'staff-5': 5 } },
+      { id: 'd-5', date: '2026-11-06', ipdCount: 8, opdCount: 105, staffCounts: { 'staff-1': 29, 'staff-2': 43, 'staff-3': 20, 'staff-4': 11, 'staff-5': 0 } },
+      { id: 'd-6', date: '2026-11-09', ipdCount: 11, opdCount: 70, staffCounts: { 'staff-1': 0, 'staff-2': 49, 'staff-3': 27, 'staff-4': 0, 'staff-5': 5 } },
+      { id: 'd-7', date: '2026-11-10', ipdCount: 8, opdCount: 51, staffCounts: { 'staff-1': 18, 'staff-2': 26, 'staff-3': 5, 'staff-4': 4, 'staff-5': 5 } }
+    ];
+
+    // Master Drug List (รายการยาให้เลือกได้ + จัดการเพิ่ม/ลบได้)
+    const DEFAULT_DRUG_CATALOG = [
+      { id: 'drug-1', name: 'risperidone 1 mg' },
+      { id: 'drug-2', name: 'risperidone 2 mg' },
+      { id: 'drug-3', name: 'B1' },
+      { id: 'drug-4', name: 'MTV' },
+      { id: 'drug-5', name: 'tramadol' },
+      { id: 'drug-6', name: 'diclofenac' },
+      { id: 'drug-7', name: 'tramadol inj' },
+      { id: 'drug-8', name: 'dexa inj' },
+      { id: 'drug-9', name: 'benzhexol 2 mg' },
+      { id: 'drug-10', name: 'CPZ 100 mg' },
+      { id: 'drug-11', name: 'benzhexol 2 mg ผสม CPZ 100 mg' },
+      { id: 'drug-12', name: 'sodamint' },
+      { id: 'drug-13', name: 'Fluphen inj' },
+      { id: 'drug-14', name: 'haldol dec inj' },
+      { id: 'drug-15', name: 'Amlodipine 5 mg' },
+      { id: 'drug-16', name: 'Amlodipine 10 mg' },
+      { id: 'drug-17', name: 'Enalapril 5 mg' },
+      { id: 'drug-18', name: 'Enalapril 20 mg' },
+      { id: 'drug-19', name: 'Losartan 50 mg' },
+      { id: 'drug-20', name: 'Metformin 500 mg' },
+      { id: 'drug-21', name: 'Metformin 850 mg' },
+      { id: 'drug-22', name: 'Glipizide 5 mg' },
+      { id: 'drug-23', name: 'Simvastatin 10 mg' },
+      { id: 'drug-24', name: 'Simvastatin 20 mg' },
+      { id: 'drug-25', name: 'Atorvastatin 20 mg' },
+      { id: 'drug-26', name: 'Atorvastatin 40 mg' },
+      { id: 'drug-27', name: 'Paracetamol 500 mg' },
+      { id: 'drug-28', name: 'Omeprazole 20 mg' },
+      { id: 'drug-29', name: 'Amoxicillin 500 mg' },
+      { id: 'drug-30', name: 'amoxicillin clavulanate 625 mg' },
+      { id: 'drug-31', name: 'Aspirin 81 mg' },
+      { id: 'drug-32', name: 'Clopidogrel 75 mg' },
+      { id: 'drug-33', name: 'Warfarin 2 mg' },
+      { id: 'drug-34', name: 'Warfarin 3 mg' },
+      { id: 'drug-35', name: 'Warfarin 5 mg' },
+      { id: 'drug-36', name: 'Furosemide 40 mg' },
+      { id: 'drug-37', name: 'Cetirizine 10 mg' },
+      { id: 'drug-38', name: 'CPM 4 mg' },
+      { id: 'drug-39', name: 'Berodual MDI' },
+      { id: 'drug-40', name: 'Salbutamol MDI' },
+      { id: 'drug-41', name: 'Insulin Mixtard 30/70 iu' },
+      { id: 'drug-42', name: 'Insulin NPH 100 iu' },
+      { id: 'drug-43', name: 'Sertraline 50 mg' },
+      { id: 'drug-44', name: 'Fluoxetine 20 mg' },
+      { id: 'drug-45', name: 'Diazepam' }
+    ];
+
+    // Exact sample data from user's uploaded spreadsheet (no staff & no strength/form field)
+    const SAMPLE_DETAILED_ERRORS = [
+      { id: 'wd-1', date: '2026-11-04', type: 'wrong_drug', targetDrug: 'Insulin Mixtard 30/70 iu', errorDrug: 'Insulin NPH 100 iu', subType: 'different_drug', notes: '' },
+      { id: 'wd-2', date: '2026-11-05', type: 'wrong_drug', targetDrug: 'Sertraline 50 mg', errorDrug: 'Fluoxetine 20 mg', subType: 'different_drug', notes: '' },
+      { id: 'wd-3', date: '2026-11-05', type: 'wrong_drug', targetDrug: 'B1', errorDrug: 'MTV', subType: 'different_drug', notes: '' },
+      { id: 'wd-4', date: '2026-11-05', type: 'wrong_drug', targetDrug: 'benzhexol 2 mg', errorDrug: 'benzhexol 2 mg ผสม CPZ 100 mg', subType: 'wrong_mix', notes: '' },
+      { id: 'ws-1', date: '2026-11-05', type: 'wrong_strength', targetDrug: 'Enalapril 20 mg', errorDrug: 'Enalapril 5 mg', notes: '' },
+      { id: 'ws-2', date: '2026-11-05', type: 'wrong_strength', targetDrug: 'risperidone 1 mg', errorDrug: 'risperidone 2 mg', notes: '' },
+      { id: 'iq-1', date: '2026-11-02', type: 'incomplete_qty', drugName: 'risperidone 2 mg', targetQty: '255', errorQty: '195', notes: '' },
+      { id: 'iq-2', date: '2026-11-03', type: 'incomplete_qty', drugName: 'risperidone 1 mg', targetQty: '185', errorQty: '145', notes: '' },
+      { id: 'ib-1', date: '2026-11-05', type: 'incomplete_basket', drugName: 'Omeprazole 20 mg', missingCount: 1, notes: 'ค้างที่ชั้นจัดยา' },
+      { id: 'ib-2', date: '2026-11-09', type: 'incomplete_basket', drugName: 'Berodual MDI', missingCount: 1, notes: 'ลืมหยิบจากตู้ยาพ่น' }
+    ];
+
+    const SUBTYPES = [
+      { id: 'different_drug', label: 'จัดยาผิดชนิดตัวยา (ต่างตัวยา)', short: 'ต่างตัวยา', color: 'bg-rose-100 text-rose-800 border-rose-200' },
+      { id: 'wrong_mix', label: 'จัดยาผสม / อื่น ๆ', short: 'ยาผสม', color: 'bg-purple-100 text-purple-800 border-purple-200' },
+      { id: 'wrong_strength', label: 'จัดยาผิดความแรง', short: 'ผิดความแรง', color: 'bg-sky-100 text-sky-800 border-sky-200', legacyOnly: true }
+    ];
+
+    const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const THAI_MONTHS_FULL = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+
+    function formatThaiDateShort(dateStr) {
+      if (!dateStr) return '';
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return `${d} ${THAI_MONTHS_SHORT[m - 1]} ${String(y + 543).slice(-2)}`;
+    }
+
+    function formatThaiMonthYear(monthStr) {
+      if (!monthStr) return '';
+      const [y, m] = monthStr.split('-').map(Number);
+      return `${THAI_MONTHS_FULL[m - 1]} ${y + 543}`;
+    }
+
+    // --- Chart.js React Wrapper Component ---
+    function ChartBox({ type, data, options, height = '240px' }) {
+      const canvasRef = useRef(null);
+      const chartInstanceRef = useRef(null);
+
+      useEffect(() => {
+        if (!canvasRef.current || !window.Chart) return;
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.destroy();
+        }
+        chartInstanceRef.current = new window.Chart(canvasRef.current, {
+          type,
+          data,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            ...options
+          }
+        });
+        return () => {
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+          }
+        };
+      }, [type, JSON.stringify(data), JSON.stringify(options)]);
+
+      return (
+        <div style={{ height, position: 'relative', width: '100%' }}>
+          <canvas ref={canvasRef}></canvas>
+        </div>
+      );
+    }
+
+    // --- Auto-Save & Snapshot Helpers (IndexedDB + localStorage fallback + File System API) ---
+    const HTML_DB_NAME = 'MederrorPharmacyHtmlDB';
+    const HTML_SNAP_LS = 'app_med_snapshots_v4';
+    let htmlDbPromise = null;
+
+    function openHtmlDb() {
+      if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+      if (htmlDbPromise) return htmlDbPromise;
+      htmlDbPromise = new Promise((resolve) => {
+        try {
+          const req = indexedDB.open(HTML_DB_NAME, 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('state')) db.createObjectStore('state', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots', { keyPath: 'id' });
+          };
+          req.onsuccess = (e) => resolve(e.target.result);
+          req.onerror = () => resolve(null);
+        } catch { resolve(null); }
+      });
+      return htmlDbPromise;
+    }
+
+    async function mirrorHtmlStateToIdb(allState) {
+      const db = await openHtmlDb();
+      if (!db) return false;
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction('state', 'readwrite');
+          tx.objectStore('state').put({ id: 'latest', updatedAt: new Date().toISOString(), data: allState });
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch { resolve(false); }
+      });
+    }
+
+    async function loadHtmlMirrorFromIdb() {
+      const db = await openHtmlDb();
+      if (!db) return null;
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction('state', 'readonly');
+          const req = tx.objectStore('state').get('latest');
+          req.onsuccess = () => resolve(req.result?.data || null);
+          req.onerror = () => resolve(null);
+        } catch { resolve(null); }
+      });
+    }
+
+    function getHtmlFingerprint(s) {
+      return JSON.stringify({
+        st: s.staff?.length || 0,
+        dc: s.drugCatalog?.length || 0,
+        dp: s.dispensing?.length || 0,
+        de: s.detailedErrors?.length || 0,
+        sm: s.staffMatrixErrors?.length || 0,
+        k: s.keyingErrors?.length || 0,
+        tail: [s.dispensing?.slice(-1)[0]?.date, s.detailedErrors?.slice(-1)[0]?.id, s.staffMatrixErrors?.slice(-1)[0]?.id]
+      });
+    }
+
+    async function saveHtmlSnapshot(allState, label = 'บันทึกอัตโนมัติ') {
+      const snap = {
+        id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        createdAt: new Date().toISOString(),
+        label,
+        summary: {
+          dispensingDays: allState.dispensing?.length || 0,
+          detailedCount: allState.detailedErrors?.length || 0,
+          matrixCount: allState.staffMatrixErrors?.length || 0,
+          keyingCount: allState.keyingErrors?.length || 0
+        },
+        data: JSON.parse(JSON.stringify(allState))
+      };
+
+      const db = await openHtmlDb();
+      if (db) {
+        await new Promise((resolve) => {
+          try {
+            const tx = db.transaction('snapshots', 'readwrite');
+            const store = tx.objectStore('snapshots');
+            store.put(snap);
+            const allReq = store.getAll();
+            allReq.onsuccess = () => {
+              const all = (allReq.result || []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+              all.slice(25).forEach(old => store.delete(old.id));
+            };
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+          } catch { resolve(false); }
+        });
+      }
+
+      try {
+        const raw = localStorage.getItem(HTML_SNAP_LS);
+        const list = raw ? JSON.parse(raw) : [];
+        localStorage.setItem(HTML_SNAP_LS, JSON.stringify([snap, ...list].slice(0, 10)));
+      } catch {}
+      return snap;
+    }
+
+    async function listHtmlSnapshots() {
+      const db = await openHtmlDb();
+      if (db) {
+        const idbList = await new Promise((resolve) => {
+          try {
+            const tx = db.transaction('snapshots', 'readonly');
+            const req = tx.objectStore('snapshots').getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+          } catch { resolve([]); }
+        });
+        if (idbList.length > 0) return idbList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      }
+      try {
+        const raw = localStorage.getItem(HTML_SNAP_LS);
+        const list = raw ? JSON.parse(raw) : [];
+        return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      } catch { return []; }
+    }
+
+    async function deleteHtmlSnapshotById(id) {
+      const db = await openHtmlDb();
+      if (db) {
+        await new Promise((resolve) => {
+          try {
+            const tx = db.transaction('snapshots', 'readwrite');
+            tx.objectStore('snapshots').delete(id);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+          } catch { resolve(false); }
+        });
+      }
+      try {
+        const raw = localStorage.getItem(HTML_SNAP_LS);
+        if (raw) {
+          localStorage.setItem(HTML_SNAP_LS, JSON.stringify(JSON.parse(raw).filter(s => s.id !== id)));
+        }
+      } catch {}
+    }
+
+    function formatDateTimeThai(isoStr) {
+      if (!isoStr) return '-';
+      try {
+        const d = new Date(isoStr);
+        return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()+543} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+      } catch { return isoStr; }
+    }
+
+    // --- Executive Share Link Helpers ---
+    function uint8ToB64Url(bytes) {
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function b64UrlToUint8(b64url) {
+      const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+      const bin = atob(b64 + pad);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    async function encodeHtmlSharePayload(allState, currentMonth) {
+      const jsonBytes = new TextEncoder().encode(JSON.stringify({ v: 1, exportedAt: new Date().toISOString(), currentMonth, data: allState }));
+      if (typeof CompressionStream !== 'undefined') {
+        const cs = new CompressionStream('gzip');
+        const w = cs.writable.getWriter();
+        w.write(jsonBytes); w.close();
+        const buf = await new Response(cs.readable).arrayBuffer();
+        return 'gz.' + uint8ToB64Url(new Uint8Array(buf));
+      }
+      return 'raw.' + uint8ToB64Url(jsonBytes);
+    }
+    async function decodeHtmlSharePayload(hashStr) {
+      const rawHash = (hashStr || '').replace(/^#/, '');
+      if (!rawHash.startsWith('share=')) return null;
+      const token = rawHash.slice(6).split('&')[0];
+      if (!token) return null;
+      let txt = '';
+      if (token.startsWith('gz.')) {
+        const ds = new DecompressionStream('gzip');
+        const w = ds.writable.getWriter();
+        w.write(b64UrlToUint8(token.slice(3))); w.close();
+        txt = new TextDecoder().decode(await new Response(ds.readable).arrayBuffer());
+      } else if (token.startsWith('raw.')) {
+        txt = new TextDecoder().decode(b64UrlToUint8(token.slice(4)));
+      } else {
+        throw new Error('รูปแบบลิงก์แชร์ไม่ถูกต้อง');
+      }
+      return JSON.parse(txt);
+    }
+
+    // --- Main App ---
+    function App() {
+      const launchParams = useMemo(() => {
+        const p = new URLSearchParams(window.location.search);
+        const mode = (p.get('mode') || '').toLowerCase();
+        const hasShare = window.location.hash.startsWith('#share=');
+        return { isExec: mode === 'executive' || mode === 'exec' || hasShare, hasShare, tab: p.get('tab') };
+      }, []);
+      const isExecutiveMode = launchParams.isExec;
+      const hasShareHash = launchParams.hasShare;
+
+      const [activeTab, setActiveTab] = useState(() => {
+        if (launchParams.isExec) return (launchParams.tab && launchParams.tab !== 'settings') ? launchParams.tab : 'dashboard';
+        return 'detailed_tables';
+      });
+      const [currentMonth, setCurrentMonth] = useState(() => localStorage.getItem('app_med_month_v4') || '2026-11');
+      const [isPrintOpen, setIsPrintOpen] = useState(false);
+      const [isShareOpen, setIsShareOpen] = useState(false);
+      const [sharedMeta, setSharedMeta] = useState({ exportedAt: '', error: '' });
+
+      const [staffList, setStaffList] = useState(() => {
+        const saved = localStorage.getItem('app_med_staff_v4');
+        return saved ? JSON.parse(saved) : DEFAULT_STAFF;
+      });
+
+      const [errorTypes] = useState(DEFAULT_ERROR_TYPES);
+
+      const [drugCatalog, setDrugCatalog] = useState(() => {
+        const saved = localStorage.getItem('app_med_drugs_v4');
+        return saved ? JSON.parse(saved) : DEFAULT_DRUG_CATALOG;
+      });
+
+      const [dispensingRecords, setDispensingRecords] = useState(() => {
+        const saved = localStorage.getItem('app_med_disp_v4');
+        return saved ? JSON.parse(saved) : DEFAULT_DISPENSING;
+      });
+
+      // Default starts at 0 (empty)
+      const [detailedErrors, setDetailedErrors] = useState(() => {
+        const saved = localStorage.getItem('app_med_detailed_v4');
+        return saved ? JSON.parse(saved) : [];
+      });
+
+      const [staffMatrixErrors, setStaffMatrixErrors] = useState(() => {
+        const saved = localStorage.getItem('app_med_matrix_v4');
+        return saved ? JSON.parse(saved) : [];
+      });
+
+      const [keyingErrors, setKeyingErrors] = useState(() => {
+        const saved = localStorage.getItem('app_med_keying_v4');
+        return saved ? JSON.parse(saved) : [];
+      });
+
+      const [lastSavedAt, setLastSavedAt] = useState(() => new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      const [snapshots, setSnapshots] = useState([]);
+      const [autoBackupFileName, setAutoBackupFileName] = useState('');
+      const autoFileHandleRef = useRef(null);
+      const prevStateRef = useRef(null);
+      const lastSnapTimeRef = useRef(0);
+      const lastFpRef = useRef('');
+
+      const applyStateSnapshot = (data) => {
+        if (!data) return;
+        if (data.staff) setStaffList(data.staff);
+        if (data.drugCatalog) setDrugCatalog(data.drugCatalog);
+        if (data.dispensing) setDispensingRecords(data.dispensing);
+        if (data.detailedErrors) setDetailedErrors(data.detailedErrors);
+        if (data.staffMatrixErrors) setStaffMatrixErrors(data.staffMatrixErrors);
+        if (data.keyingErrors) setKeyingErrors(data.keyingErrors);
+      };
+
+      // Initial IndexedDB recovery or Executive Share load
+      useEffect(() => {
+        if (isExecutiveMode && hasShareHash) {
+          (async () => {
+            try {
+              const payload = await decodeHtmlSharePayload(window.location.hash);
+              if (payload?.data) {
+                applyStateSnapshot(payload.data);
+                if (payload.currentMonth) setCurrentMonth(payload.currentMonth);
+                setSharedMeta({ exportedAt: payload.exportedAt || '', error: '' });
+              }
+            } catch (err) {
+              setSharedMeta({ exportedAt: '', error: err?.message || 'ไม่สามารถอ่านข้อมูลจากลิงก์แชร์ได้' });
+            }
+          })();
+          return;
+        }
+
+        const hasLs = Boolean(localStorage.getItem('app_med_disp_v4') || localStorage.getItem('app_med_detailed_v4'));
+        (async () => {
+          if (!hasLs) {
+            const recovered = await loadHtmlMirrorFromIdb();
+            if (recovered && (recovered.dispensing || recovered.detailedErrors)) {
+              applyStateSnapshot(recovered);
+            }
+          }
+          setSnapshots(await listHtmlSnapshots());
+        })();
+      }, [isExecutiveMode, hasShareHash]);
+
+      useEffect(() => {
+        if (!isExecutiveMode) {
+          localStorage.setItem('app_med_month_v4', currentMonth);
+        }
+      }, [currentMonth, isExecutiveMode]);
+
+      // Multi-layer Auto-Save on every edit (disabled in Executive Read-Only Mode)
+      useEffect(() => {
+        if (isExecutiveMode) return;
+        const allState = { staff: staffList, drugCatalog, dispensing: dispensingRecords, detailedErrors, staffMatrixErrors, keyingErrors };
+        localStorage.setItem('app_med_staff_v4', JSON.stringify(staffList));
+        localStorage.setItem('app_med_drugs_v4', JSON.stringify(drugCatalog));
+        localStorage.setItem('app_med_disp_v4', JSON.stringify(dispensingRecords));
+        localStorage.setItem('app_med_detailed_v4', JSON.stringify(detailedErrors));
+        localStorage.setItem('app_med_matrix_v4', JSON.stringify(staffMatrixErrors));
+        localStorage.setItem('app_med_keying_v4', JSON.stringify(keyingErrors));
+        setLastSavedAt(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+        const prev = prevStateRef.current;
+        const prevTot = (prev?.detailedErrors?.length||0)+(prev?.dispensing?.length||0)+(prev?.staffMatrixErrors?.length||0)+(prev?.keyingErrors?.length||0);
+        const nextTot = detailedErrors.length + dispensingRecords.length + staffMatrixErrors.length + keyingErrors.length;
+        const droppedSharply = prev && (prevTot - nextTot >= 3 || (prevTot > 0 && nextTot === 0));
+
+        const fp = getHtmlFingerprint(allState);
+        const now = Date.now();
+        (async () => {
+          if (droppedSharply && prev) {
+            await saveHtmlSnapshot(prev, 'สำรองอัตโนมัติก่อนล้างข้อมูล');
+            lastSnapTimeRef.current = now;
+            lastFpRef.current = fp;
+            setSnapshots(await listHtmlSnapshots());
+          } else if (fp !== lastFpRef.current && (now - lastSnapTimeRef.current > 2 * 60 * 1000 || lastSnapTimeRef.current === 0)) {
+            await saveHtmlSnapshot(allState, 'บันทึกอัตโนมัติ');
+            lastSnapTimeRef.current = now;
+            lastFpRef.current = fp;
+            setSnapshots(await listHtmlSnapshots());
+          }
+          prevStateRef.current = allState;
+          await mirrorHtmlStateToIdb(allState);
+          if (autoFileHandleRef.current) {
+            try {
+              const writable = await autoFileHandleRef.current.createWritable();
+              await writable.write(JSON.stringify({ exportedAt: new Date().toISOString(), ...allState }, null, 2));
+              await writable.close();
+            } catch {}
+          }
+        })();
+      }, [staffList, drugCatalog, dispensingRecords, detailedErrors, staffMatrixErrors, keyingErrors]);
+
+      useEffect(() => {
+        if (window.lucide) window.lucide.createIcons();
+      });
+
+      const currentAllState = { staff: staffList, drugCatalog, dispensing: dispensingRecords, detailedErrors, staffMatrixErrors, keyingErrors };
+
+      const handleClearAllToZero = async () => {
+        if (confirm(`ยืนยันการล้างข้อมูล Mederror ประจำเดือน ${formatThaiMonthYear(currentMonth)} ให้เป็น 0 ทั้งหมดหรือไม่? (ระบบจะสำรองจุดเดิมไว้ในประวัติย้อนหลังให้)`)) {
+          await saveHtmlSnapshot(currentAllState, `ก่อนล้างข้อมูลเดือน ${formatThaiMonthYear(currentMonth)}`);
+          setDetailedErrors(prev => prev.filter(e => !e.date.startsWith(currentMonth)));
+          setStaffMatrixErrors(prev => prev.filter(e => !e.date.startsWith(currentMonth)));
+          setKeyingErrors(prev => prev.filter(k => !k.date.startsWith(currentMonth)));
+          setSnapshots(await listHtmlSnapshots());
+        }
+      };
+
+      const handleCreateManualSnapshot = async () => {
+        await saveHtmlSnapshot(currentAllState, 'บันทึกโดยผู้ใช้');
+        setSnapshots(await listHtmlSnapshots());
+        alert('บันทึกจุดสำรองย้อนหลังเรียบร้อยแล้ว');
+      };
+
+      const handleRestoreSnapshot = async (snap) => {
+        if (!snap?.data) return;
+        if (!confirm('ยืนยันการกู้คืนข้อมูลกลับไปยังจุดบันทึกนี้หรือไม่? (ระบบจะสำรองข้อมูลปัจจุบันเก็บไว้ให้ก่อน)')) return;
+        await saveHtmlSnapshot(currentAllState, 'ก่อนกู้คืนข้อมูลย้อนหลัง');
+        applyStateSnapshot(snap.data);
+        setSnapshots(await listHtmlSnapshots());
+      };
+
+      const handleDeleteSnapshot = async (id) => {
+        await deleteHtmlSnapshotById(id);
+        setSnapshots(await listHtmlSnapshots());
+      };
+
+      const handlePickAutoBackupFile = async () => {
+        if (typeof window.showSaveFilePicker !== 'function') return;
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: 'mederror_autosave_backup.json',
+            types: [{ description: 'JSON Backup File', accept: { 'application/json': ['.json'] } }]
+          });
+          autoFileHandleRef.current = handle;
+          setAutoBackupFileName(handle.name);
+          const writable = await handle.createWritable();
+          await writable.write(JSON.stringify({ exportedAt: new Date().toISOString(), ...currentAllState }, null, 2));
+          await writable.close();
+        } catch {}
+      };
+
+      const handleDownloadJsonBackup = () => {
+        const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({ exportedAt: new Date().toISOString(), ...currentAllState }, null, 2));
+        const a = document.createElement('a');
+        a.setAttribute('href', dataStr);
+        a.setAttribute('download', `mederror_backup_${new Date().toISOString().slice(0,10)}.json`);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      };
+
+      const handleImportJsonBackup = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          try {
+            const parsed = JSON.parse(ev.target.result);
+            if (parsed.staff && (parsed.dispensing || parsed.detailedErrors)) {
+              await saveHtmlSnapshot(currentAllState, 'ก่อนนำเข้าไฟล์สำรอง (.json)');
+              applyStateSnapshot(parsed);
+              setSnapshots(await listHtmlSnapshots());
+              alert('นำเข้าข้อมูลย้อนหลังสำเร็จ');
+            } else {
+              alert('รูปแบบไฟล์ JSON ไม่ถูกต้อง');
+            }
+          } catch { alert('เกิดข้อผิดพลาดในการอ่านไฟล์สำรองข้อมูล'); }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      };
+
+      const handleExportExcel = (targetMonth = currentMonth) => {
+        const m = typeof targetMonth === 'string' ? targetMonth : currentMonth;
+        const wb = XLSX.utils.book_new();
+        const monthTitle = formatThaiMonthYear(m);
+        const activeStaff = staffList.filter(s => s.canDispense);
+
+        const monthlyDisp = dispensingRecords.filter(r => r.date.startsWith(m)).sort((a,b) => a.date.localeCompare(b.date));
+        const monthlyDetailed = detailedErrors.filter(e => e.date.startsWith(m));
+        const monthlyMatrix = staffMatrixErrors.filter(e => e.date.startsWith(m));
+        const wrongDrugList = monthlyDetailed.filter(e => e.type === 'wrong_drug');
+        const wrongStrengthList = monthlyDetailed.filter(e => e.type === 'wrong_strength');
+        const incompleteQtyList = monthlyDetailed.filter(e => e.type === 'incomplete_qty');
+        const incompleteBasketList = monthlyDetailed.filter(e => e.type === 'incomplete_basket');
+
+        // 1. 1.จัดยาผิดชนิด
+        const wdHeaders = ['วันที่', 'รายการยาที่ต้องการ', 'ความคลาดเคลื่อน (ยาที่จัดผิด)', 'ประเภทความผิด'];
+        const wdRows = wrongDrugList.map(i => {
+          const sub = i.subType === 'wrong_strength' ? 'ผิดความแรง' : i.subType === 'wrong_mix' ? 'ยาผสม' : 'ผิดชนิดตัวยา';
+          return [formatThaiDateShort(i.date), i.targetDrug, i.errorDrug, sub];
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`1. ตารางจัดยาผิดชนิด เดือน ${monthTitle}`], [], wdHeaders, ...wdRows]), '1.จัดยาผิดชนิด');
+
+        // 2. 2.จัดยาไม่ครบจำนวน
+        const iqHeaders = ['วันที่', 'ชื่อยา', 'จำนวน (ที่ต้องการ)', 'ความคลาดเคลื่อน'];
+        const iqRows = incompleteQtyList.map(i => [
+          formatThaiDateShort(i.date), i.drugName, i.targetQty, i.errorQty
+        ]);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`2. ตารางจัดยาไม่ครบจำนวน เดือน ${monthTitle}`], [], iqHeaders, ...iqRows]), '2.จัดยาไม่ครบจำนวน');
+
+        // 3. 3.จัดยาไม่ครบในตะกร้า
+        const ibHeaders = ['วันที่', 'จัดยาไม่ครบจำนวน (ยาในตะกร้า)', 'จำนวนที่ขาด'];
+        const ibRows = incompleteBasketList.map(i => [
+          formatThaiDateShort(i.date), i.drugName, i.missingCount || 1
+        ]);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`3. ตารางจัดยาไม่ครบในตะกร้า เดือน ${monthTitle}`], [], ibHeaders, ...ibRows]), '3.จัดยาไม่ครบในตะกร้า');
+
+        // 4. 4.จัดยาผิดความแรง
+        const wsHeaders = ['วันที่', 'รายการยาที่ต้องการ', 'ความคลาดเคลื่อน (ความแรงที่จัดผิด)'];
+        const wsRows = wrongStrengthList.map(i => [
+          formatThaiDateShort(i.date), i.targetDrug, i.errorDrug
+        ]);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`4. ตารางจัดยาผิดความแรง เดือน ${monthTitle}`], [], wsHeaders, ...wsRows]), '4.จัดยาผิดความแรง');
+
+        // 5. ภาระงานจัดยา
+        const dispHeaders = ['วันที่', 'IPD', 'OPD', 'รวมคนไข้', ...activeStaff.map(s => s.shortName), 'รวมจัดยา'];
+        const dispRows = monthlyDisp.map(r => {
+          let sTot = 0;
+          const cols = activeStaff.map(s => {
+            const v = Number(r.staffCounts?.[s.id]) || 0;
+            sTot += v;
+            return v;
+          });
+          return [formatThaiDateShort(r.date), r.ipdCount, r.opdCount, (Number(r.ipdCount)||0)+(Number(r.opdCount)||0), ...cols, sTot];
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`รายงานการจัดยา เดือน ${monthTitle}`], [], dispHeaders, ...dispRows]), 'ภาระงานจัดยา');
+
+        // 6. Matrix การจัดยารายบุคคล
+        const dispTypes = errorTypes.dispensing || [];
+        const mHeaders = ['ชื่อ', ...dispTypes.map(t => t.name), 'รวม'];
+        const mRows = activeStaff.map(s => {
+          const cols = dispTypes.map(t => monthlyMatrix.filter(i => i.staffId === s.id && i.errorTypeId === t.id).length);
+          const rowTot = cols.reduce((acc, c) => acc + c, 0);
+          return [s.fullName, ...cols, rowTot];
+        });
+        mRows.push(['รวม', ...dispTypes.map(t => monthlyMatrix.filter(i => i.errorTypeId === t.id).length), monthlyMatrix.length]);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[`สรุป Mederror การจัดยา เดือน ${monthTitle}`], [], mHeaders, ...mRows]), 'Mederror_รายบุคคล');
+
+        XLSX.writeFile(wb, `รายงานห้องยา_Mederror_${m}.xlsx`);
+      };
+
+      const handleExportAllHistoryExcel = () => {
+        const wb = XLSX.utils.book_new();
+        const activeStaff = staffList.filter(s => s.canDispense);
+        const mSet = new Set();
+        dispensingRecords.forEach(r => r.date && mSet.add(r.date.slice(0,7)));
+        detailedErrors.forEach(e => e.date && mSet.add(e.date.slice(0,7)));
+        staffMatrixErrors.forEach(x => x.date && mSet.add(x.date.slice(0,7)));
+        keyingErrors.forEach(k => k.date && mSet.add(k.date.slice(0,7)));
+        const months = Array.from(mSet).sort();
+
+        const sumHeaders = ['เดือน/ปี', 'วันบันทึก', 'ผู้ป่วยรวม', 'ยอดจัดยา', 'ผิดชนิด', 'ไม่ครบจำนวน', 'ไม่ครบตะกร้า', 'ผิดความแรง', 'รวม Mederror ยา', 'รายบุคคล(จัด/คีย์)'];
+        const sumRows = months.map(m => {
+          const disp = dispensingRecords.filter(r => r.date.startsWith(m));
+          const det = detailedErrors.filter(e => e.date.startsWith(m));
+          const mat = staffMatrixErrors.filter(x => x.date.startsWith(m));
+          const key = keyingErrors.filter(k => k.date.startsWith(m));
+          let totP = 0, totD = 0;
+          disp.forEach(r => { totP += (Number(r.ipdCount)||0)+(Number(r.opdCount)||0); Object.values(r.staffCounts||{}).forEach(v => totD += Number(v)||0); });
+          return [formatThaiMonthYear(m), disp.length, totP, totD, det.filter(i=>i.type==='wrong_drug').length, det.filter(i=>i.type==='incomplete_qty').length, det.filter(i=>i.type==='incomplete_basket').length, det.filter(i=>i.type==='wrong_strength').length, det.length, `${mat.length}/${key.length}`];
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['สรุปข้อมูลย้อนหลังทุกเดือน ห้องยา'], [], sumHeaders, ...sumRows]), 'สรุปย้อนหลังทุกเดือน');
+
+        const sortedDisp = [...dispensingRecords].sort((a,b) => a.date.localeCompare(b.date));
+        const dHeaders = ['วันที่', 'เดือน', 'IPD', 'OPD', 'รวมคนไข้', ...activeStaff.map(s => s.shortName), 'รวมจัดยา'];
+        const dRows = sortedDisp.map(r => {
+          let totD = 0;
+          const cols = activeStaff.map(s => { const v = Number(r.staffCounts?.[s.id])||0; totD+=v; return v; });
+          return [formatThaiDateShort(r.date), formatThaiMonthYear(r.date.slice(0,7)), r.ipdCount, r.opdCount, (Number(r.ipdCount)||0)+(Number(r.opdCount)||0), ...cols, totD];
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ประวัติการจัดยาประจำวันทั้งหมด'], [], dHeaders, ...dRows]), 'จัดยาประจำวัน_ทั้งหมด');
+
+        const sortedDet = [...detailedErrors].sort((a,b) => a.date.localeCompare(b.date));
+        const typeTxt = { wrong_drug: '1. จัดยาผิดชนิด', incomplete_qty: '2. ไม่ครบจำนวน', incomplete_basket: '3. ไม่ครบในตะกร้า', wrong_strength: '4. ผิดความแรง' };
+        const eHeaders = ['วันที่', 'เดือน', 'หมวดหมู่', 'รายการยา/ชื่อยา', 'ความคลาดเคลื่อน'];
+        const eRows = sortedDet.map(i => [
+          formatThaiDateShort(i.date), formatThaiMonthYear(i.date.slice(0,7)), typeTxt[i.type]||i.type, i.targetDrug||i.drugName||'-',
+          i.errorDrug || (i.type==='incomplete_qty' ? `${i.targetQty} -> ${i.errorQty}` : `ขาด ${i.missingCount||1} รายการ`)
+        ]);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ประวัติ Mederror ยาทั้งหมด'], [], eHeaders, ...eRows]), 'Mederror_ทั้งหมด');
+
+        XLSX.writeFile(wb, `ประวัติข้อมูลห้องยา_ย้อนหลังทั้งหมด.xlsx`);
+      };
+
+      // Generate Dynamic Year List (2566-2572 + any year found in records)
+      const [curYr, curMo] = currentMonth.split('-').map(Number);
+      const yrSet = new Set([2023, 2024, 2025, 2026, 2027, 2028, 2029, curYr]);
+      dispensingRecords.forEach(r => r.date && yrSet.add(Number(r.date.slice(0,4))));
+      detailedErrors.forEach(e => e.date && yrSet.add(Number(e.date.slice(0,4))));
+      const yearOptions = Array.from(yrSet).filter(Boolean).sort((a,b) => a - b);
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Header */}
+          <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs no-print">
+            <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 flex items-center justify-center text-white shadow-md">
+                  <i data-lucide="pill" className="w-6 h-6"></i>
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold font-prompt text-slate-800 leading-tight">ระบบบันทึกการจัดยา & Mederror ห้องยา</h1>
+                  <p className="text-xs text-slate-500">แยก 4 ตาราง + บันทึกอัตโนมัติ + เรียกดูข้อมูลย้อนหลัง + แดชบอร์ดรายบุคคล</p>
+                </div>
+              </div>
+
+              <div className="flex items-center flex-wrap gap-2">
+                {isExecutiveMode ? (
+                  <span className="px-2.5 py-1.5 text-2xs font-bold text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-1">
+                    👁️ โหมดผู้บริหาร (ดูอย่างเดียว)
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setActiveTab('history')}
+                    className="px-2.5 py-1.5 text-2xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl cursor-pointer flex items-center gap-1"
+                    title="ระบบบันทึกข้อมูลอัตโนมัติ • คลิกเพื่อดูประวัติย้อนหลัง"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>บันทึกอัตโนมัติ {lastSavedAt}</span>
+                  </button>
+                )}
+
+                <div className="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200 text-xs font-medium">
+                  <span className="px-2 text-slate-500">เดือน:</span>
+                  <select 
+                    value={curMo} 
+                    onChange={e => setCurrentMonth(`${curYr}-${String(e.target.value).padStart(2,'0')}`)}
+                    className="bg-white rounded-lg px-2 py-1 border border-slate-200 font-semibold text-slate-700 cursor-pointer"
+                  >
+                    {THAI_MONTHS_FULL.map((m, idx) => <option key={idx+1} value={idx+1}>{m}</option>)}
+                  </select>
+                  <select 
+                    value={curYr} 
+                    onChange={e => setCurrentMonth(`${e.target.value}-${String(curMo).padStart(2,'0')}`)}
+                    className="bg-white rounded-lg px-2 py-1 border border-slate-200 font-semibold text-slate-700 ml-1 cursor-pointer"
+                  >
+                    {yearOptions.map(y => <option key={y} value={y}>พ.ศ. {y+543}</option>)}
+                  </select>
+                </div>
+
+                {!isExecutiveMode && (
+                  <button
+                    onClick={() => setIsShareOpen(true)}
+                    className="px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                    title="สร้างลิงก์ออนไลน์ให้ผู้บริหารเปิดดูได้ทุกที่ทุกเวลา"
+                  >
+                    <span>🔗 แชร์ผู้บริหาร</span>
+                  </button>
+                )}
+
+                <button 
+                  onClick={() => handleExportExcel(currentMonth)}
+                  className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <i data-lucide="file-spreadsheet" className="w-4 h-4 text-emerald-600"></i>
+                  <span>ส่งออก Excel</span>
+                </button>
+
+                <button 
+                  onClick={() => setIsPrintOpen(true)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <i data-lucide="printer" className="w-4 h-4 text-slate-600"></i>
+                  <span>พิมพ์รายงาน</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="max-w-7xl mx-auto px-4 flex gap-1 border-t border-slate-100 pt-2 pb-1 overflow-x-auto">
+              {[
+                { id: 'detailed_tables', label: '📝 บันทึกแยก 4 ตาราง (ผิดชนิด / ไม่ครบ / ตะกร้า / ผิดความแรง)' },
+                { id: 'dashboard', label: '📊 แดชบอร์ด & สรุป Mederror รายบุคคล' },
+                { id: 'mederror', label: '⚠️ บันทึก Mederror รายบุคคล' },
+                { id: 'dispensing', label: '📋 บันทึกจัดยาประจำวัน' },
+                { id: 'history', label: '📜 ข้อมูลย้อนหลัง & สำรอง' },
+                ...(!isExecutiveMode ? [{ id: 'settings', label: '👥 เจ้าหน้าที่ & ตั้งค่า' }] : [])
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === tab.id ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </header>
+
+          {isExecutiveMode && (
+            <div className="bg-indigo-600 text-white text-xs py-2 px-4 no-print">
+              <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 bg-white/20 rounded-full font-bold text-2xs">EXECUTIVE READ-ONLY</span>
+                  <span>
+                    กำลังแสดงข้อมูลสำหรับผู้บริหาร (ดูอย่างเดียว)
+                    {sharedMeta.exportedAt ? ` • อัปเดต ณ ${new Date(sharedMeta.exportedAt).toLocaleString('th-TH')}` : ''}
+                  </span>
+                </div>
+                {sharedMeta.error && <span className="bg-rose-500 px-2 py-0.5 rounded-full text-2xs font-bold">{sharedMeta.error}</span>}
+              </div>
+            </div>
+          )}
+
+          <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
+            {activeTab === 'detailed_tables' && (
+              <DetailedTablesView 
+                currentMonth={currentMonth}
+                detailedErrors={detailedErrors}
+                setDetailedErrors={setDetailedErrors}
+                drugCatalog={drugCatalog}
+                setDrugCatalog={setDrugCatalog}
+                onClearAll={handleClearAllToZero}
+                isReadOnly={isExecutiveMode}
+              />
+            )}
+
+            {activeTab === 'dashboard' && (
+              <DashboardView 
+                currentMonth={currentMonth}
+                dispensingRecords={dispensingRecords}
+                staffList={staffList}
+                errorTypes={errorTypes}
+                detailedErrors={detailedErrors}
+                staffMatrixErrors={staffMatrixErrors}
+                keyingErrors={keyingErrors}
+              />
+            )}
+
+            {activeTab === 'mederror' && (
+              <MederrorMatrixView 
+                currentMonth={currentMonth}
+                staffMatrixErrors={staffMatrixErrors}
+                setStaffMatrixErrors={setStaffMatrixErrors}
+                keyingErrors={keyingErrors}
+                setKeyingErrors={setKeyingErrors}
+                staffList={staffList}
+                errorTypes={errorTypes}
+                onClearAll={handleClearAllToZero}
+                onGoToDetailed={() => setActiveTab('detailed_tables')}
+                isReadOnly={isExecutiveMode}
+              />
+            )}
+
+            {activeTab === 'dispensing' && (
+              <DailyDispensingView 
+                currentMonth={currentMonth}
+                dispensingRecords={dispensingRecords}
+                setDispensingRecords={setDispensingRecords}
+                staffList={staffList}
+                isReadOnly={isExecutiveMode}
+              />
+            )}
+
+            {activeTab === 'history' && (
+              <HistoryArchiveView 
+                currentMonth={currentMonth}
+                onSelectMonthAndView={(m, tab) => { setCurrentMonth(m); setActiveTab(tab || 'detailed_tables'); }}
+                dispensingRecords={dispensingRecords}
+                staffList={staffList}
+                detailedErrors={detailedErrors}
+                staffMatrixErrors={staffMatrixErrors}
+                keyingErrors={keyingErrors}
+                snapshots={snapshots}
+                lastSavedAt={lastSavedAt}
+                autoBackupFileName={autoBackupFileName}
+                onPickAutoBackupFile={handlePickAutoBackupFile}
+                onCreateManualSnapshot={handleCreateManualSnapshot}
+                onRestoreSnapshot={handleRestoreSnapshot}
+                onDeleteSnapshot={handleDeleteSnapshot}
+                onExportMonthExcel={(m) => handleExportExcel(m)}
+                onExportAllHistoryExcel={handleExportAllHistoryExcel}
+                onDownloadJsonBackup={handleDownloadJsonBackup}
+                onImportJsonBackup={handleImportJsonBackup}
+                isReadOnly={isExecutiveMode}
+              />
+            )}
+
+            {activeTab === 'settings' && !isExecutiveMode && (
+              <SettingsView 
+                staffList={staffList}
+                setStaffList={setStaffList}
+                drugCatalog={drugCatalog}
+                setDrugCatalog={setDrugCatalog}
+                onClearAll={handleClearAllToZero}
+              />
+            )}
+          </main>
+
+          {isPrintOpen && (
+            <PrintModal 
+              currentMonth={currentMonth}
+              dispensingRecords={dispensingRecords}
+              staffList={staffList}
+              detailedErrors={detailedErrors}
+              onClose={() => setIsPrintOpen(false)}
+            />
+          )}
+
+          {isShareOpen && (
+            <ShareModalHtml
+              allState={{ staff: staffList, drugCatalog, dispensing: dispensingRecords, detailedErrors, staffMatrixErrors, keyingErrors }}
+              currentMonth={currentMonth}
+              onClose={() => setIsShareOpen(false)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Reusable Drug Dropdown + Text Picker
+    function DrugSelector({ label, labelClass = 'text-slate-700', value, onChange, drugCatalog, onAddToCatalog, placeholder, inputClass = 'border-slate-300' }) {
+      const isAlreadyInCatalog = drugCatalog.some(d => d.name.toLowerCase() === value.trim().toLowerCase());
+
+      return (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <label className={`block font-semibold ${labelClass}`}>{label}</label>
+            {value.trim() && !isAlreadyInCatalog && onAddToCatalog && (
+              <button
+                type="button"
+                onClick={() => onAddToCatalog(value.trim())}
+                className="text-2xs text-teal-700 hover:text-teal-900 font-semibold bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200 cursor-pointer shrink-0"
+                title="บันทึกชื่อยานี้เข้าสู่รายการยาเพื่อให้เลือกได้ในครั้งถัดไป"
+              >
+                + บันทึกเข้าคลังยา
+              </button>
+            )}
+          </div>
+          <select
+            value={isAlreadyInCatalog ? value : ''}
+            onChange={(e) => { if (e.target.value) onChange(e.target.value); }}
+            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:ring-2 focus:ring-teal-500 cursor-pointer"
+          >
+            <option value="">-- เลือกจากรายการยา ({drugCatalog.length} รายการ) --</option>
+            {drugCatalog.map(d => (
+              <option key={d.id} value={d.name}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            required
+            placeholder={placeholder || 'หรือพิมพ์ชื่อยาเองที่นี่...'}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className={`w-full border p-2 rounded-xl focus:ring-2 focus:ring-teal-500 ${inputClass}`}
+          />
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // VIEW 1: บันทึกข้อมูลแยก 4 ตาราง (ไม่มีผู้จัดยา & ไม่มีช่องความแรง/รูปแบบ)
+    // =========================================================================
+    function DetailedTablesView({ currentMonth, detailedErrors, setDetailedErrors, drugCatalog, setDrugCatalog, onClearAll, isReadOnly = false }) {
+      const [activeFilter, setActiveFilter] = useState('all');
+      const [modalType, setModalType] = useState(null);
+      const [editingItem, setEditingItem] = useState(null);
+
+      // Form states
+      const [formDate, setFormDate] = useState(`${currentMonth}-05`);
+      const [formNotes, setFormNotes] = useState('');
+
+      const [targetDrug, setTargetDrug] = useState('');
+      const [errorDrug, setErrorDrug] = useState('');
+      const [subType, setSubType] = useState('different_drug');
+
+      const [drugNameQty, setDrugNameQty] = useState('');
+      const [targetQty, setTargetQty] = useState('');
+      const [errorQty, setErrorQty] = useState('');
+
+      const [drugNameBasket, setDrugNameBasket] = useState('');
+      const [missingCount, setMissingCount] = useState(1);
+
+      const monthTitle = formatThaiMonthYear(currentMonth);
+
+      const monthlyItems = detailedErrors.filter(i => i.date.startsWith(currentMonth)).sort((a,b) => a.date.localeCompare(b.date));
+      const wrongDrugList = monthlyItems.filter(i => i.type === 'wrong_drug');
+      const incompleteQtyList = monthlyItems.filter(i => i.type === 'incomplete_qty');
+      const incompleteBasketList = monthlyItems.filter(i => i.type === 'incomplete_basket');
+      const wrongStrengthList = monthlyItems.filter(i => i.type === 'wrong_strength');
+
+      const handleAddDrugToCatalog = (drugName) => {
+        if (!drugName) return;
+        const exists = drugCatalog.some(d => d.name.toLowerCase() === drugName.toLowerCase());
+        if (!exists) {
+          setDrugCatalog(prev => [...prev, { id: `drug-${Date.now()}`, name: drugName }]);
+        }
+      };
+
+      const handleLoadSamples = () => {
+        const mapped = SAMPLE_DETAILED_ERRORS.map(item => {
+          const day = item.date.split('-')[2] || '05';
+          return { ...item, id: `${item.id}-${Date.now()}-${Math.random().toString(36).slice(2,5)}`, date: `${currentMonth}-${day}` };
+        });
+        setDetailedErrors(prev => [...prev.filter(i => !i.date.startsWith(currentMonth)), ...mapped]);
+      };
+
+      const openAddModal = (type) => {
+        setEditingItem(null);
+        setModalType(type);
+        setFormDate(`${currentMonth}-05`);
+        setFormNotes('');
+        setTargetDrug('');
+        setErrorDrug('');
+        setSubType('different_drug');
+        setDrugNameQty('');
+        setTargetQty('');
+        setErrorQty('');
+        setDrugNameBasket('');
+        setMissingCount(1);
+      };
+
+      const openEditModal = (item) => {
+        setEditingItem(item);
+        setModalType(item.type);
+        setFormDate(item.date);
+        setFormNotes(item.notes || '');
+        if (item.type === 'wrong_drug' || item.type === 'wrong_strength') {
+          setTargetDrug(item.targetDrug || '');
+          setErrorDrug(item.errorDrug || '');
+          setSubType(item.subType || 'different_drug');
+        } else if (item.type === 'incomplete_qty') {
+          setDrugNameQty(item.drugName || '');
+          setTargetQty(item.targetQty || '');
+          setErrorQty(item.errorQty || '');
+        } else {
+          setDrugNameBasket(item.drugName || '');
+          setMissingCount(item.missingCount || 1);
+        }
+      };
+
+      const handleDelete = (id) => {
+        if (confirm('ยืนยันการลบรายการนี้หรือไม่?')) {
+          setDetailedErrors(prev => prev.filter(i => i.id !== id));
+        }
+      };
+
+      const handleSave = (e) => {
+        e.preventDefault();
+        let payload = {
+          id: editingItem ? editingItem.id : `err-${modalType}-${Date.now()}`,
+          date: formDate,
+          type: modalType,
+          notes: formNotes.trim()
+        };
+        if (modalType === 'wrong_drug') {
+          payload = { ...payload, targetDrug: targetDrug.trim(), errorDrug: errorDrug.trim(), subType };
+        } else if (modalType === 'wrong_strength') {
+          payload = { ...payload, targetDrug: targetDrug.trim(), errorDrug: errorDrug.trim() };
+        } else if (modalType === 'incomplete_qty') {
+          payload = { ...payload, drugName: drugNameQty.trim(), targetQty: targetQty.trim(), errorQty: errorQty.trim() };
+        } else {
+          payload = { ...payload, drugName: drugNameBasket.trim(), missingCount: Number(missingCount) || 1 };
+        }
+
+        if (editingItem) {
+          setDetailedErrors(prev => prev.map(i => i.id === editingItem.id ? payload : i));
+        } else {
+          setDetailedErrors(prev => [...prev, payload]);
+        }
+        setModalType(null);
+      };
+
+      return (
+        <div className="space-y-6 pb-10">
+          {/* Toolbar */}
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold font-prompt text-slate-800 flex items-center gap-2">
+                บันทึกข้อมูลความคลาดเคลื่อนแยก 4 ตาราง
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 font-semibold">{monthTitle}</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">เลือกรายการยาจากคลังยาหรือพิมพ์ชื่อยาได้ทันที แยกบันทึก 1. ผิดชนิด • 2. ไม่ครบจำนวน • 3. ไม่ครบในตะกร้า • 4. ผิดความแรง</p>
+            </div>
+            {!isReadOnly && (
+              <div className="flex flex-wrap gap-2">
+                <button onClick={handleLoadSamples} className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold cursor-pointer">
+                  ✨ โหลดตัวอย่างข้อมูล (จากภาพ)
+                </button>
+                <button onClick={onClearAll} className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer">
+                  🔄 ล้างข้อมูลเป็น 0
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'all', label: `แสดงทั้งหมด (${monthlyItems.length})` },
+              { id: 'wrong_drug', label: `1. จัดยาผิดชนิด (${wrongDrugList.length})` },
+              { id: 'incomplete_qty', label: `2. จัดยาไม่ครบจำนวน (${incompleteQtyList.length})` },
+              { id: 'incomplete_basket', label: `3. จัดยาไม่ครบในตะกร้า (${incompleteBasketList.length})` },
+              { id: 'wrong_strength', label: `4. จัดยาผิดความแรง (${wrongStrengthList.length})` }
+            ].map(f => (
+              <button
+                key={f.id}
+                onClick={() => setActiveFilter(f.id)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  activeFilter === f.id ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* TABLE 1: จัดยาผิดชนิด */}
+          {(activeFilter === 'all' || activeFilter === 'wrong_drug') && (
+            <div className="bg-white rounded-2xl border border-rose-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 bg-gradient-to-r from-rose-50 to-white border-b border-rose-200 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 font-prompt flex items-center gap-2">
+                    1. จัดยาผิดชนิด (Wrong Drug)
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold">{wrongDrugList.length} ครั้ง</span>
+                  </h3>
+                  <p className="text-2xs text-slate-500">คอลัมน์: วันที่ | รายการยาที่ต้องการ | ความคลาดเคลื่อน | ประเภท</p>
+                </div>
+                {!isReadOnly && (
+                  <button onClick={() => openAddModal('wrong_drug')} className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer">
+                    + เพิ่มรายการจัดยาผิดชนิด
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <th className="py-3 px-4 w-28">วันที่</th>
+                      <th className="py-3 px-4">รายการยาที่ต้องการ</th>
+                      <th className="py-3 px-2 w-8 text-center">➔</th>
+                      <th className="py-3 px-4">ความคลาดเคลื่อน (ยาที่จัดผิด)</th>
+                      <th className="py-3 px-3">ประเภทความผิด</th>
+                      {!isReadOnly && <th className="py-3 px-3 text-center w-20">จัดการ</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {wrongDrugList.length === 0 ? (
+                      <tr><td colSpan={isReadOnly ? 5 : 6} className="py-8 text-center text-slate-400">ยังไม่มีรายการจัดยาผิดชนิด (0 ครั้ง)</td></tr>
+                    ) : (
+                      wrongDrugList.map(item => {
+                        const subObj = SUBTYPES.find(s => s.id === item.subType) || SUBTYPES[0];
+                        return (
+                          <tr key={item.id} className="hover:bg-rose-50/30">
+                            <td className="py-2.5 px-4 font-semibold whitespace-nowrap">{formatThaiDateShort(item.date)}</td>
+                            <td className="py-2.5 px-4 font-bold text-emerald-800 bg-emerald-50/30">{item.targetDrug}</td>
+                            <td className="py-2.5 px-2 text-center text-rose-500 font-bold">➔</td>
+                            <td className="py-2.5 px-4 font-bold text-rose-700 bg-rose-50/30">{item.errorDrug}</td>
+                            <td className="py-2.5 px-3"><span className={`px-2 py-0.5 rounded-full text-2xs font-semibold border ${subObj.color}`}>{subObj.short}</span></td>
+                            {!isReadOnly && (
+                              <td className="py-2.5 px-3 text-center">
+                                <button onClick={() => openEditModal(item)} className="text-teal-600 hover:underline mr-2 cursor-pointer">แก้</button>
+                                <button onClick={() => handleDelete(item.id)} className="text-rose-600 hover:underline cursor-pointer">ลบ</button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TABLE 2: จัดยาไม่ครบจำนวน */}
+          {(activeFilter === 'all' || activeFilter === 'incomplete_qty') && (
+            <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 bg-gradient-to-r from-amber-50 to-white border-b border-amber-200 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 font-prompt flex items-center gap-2">
+                    2. จัดยาไม่ครบจำนวน (เม็ดยา)
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">{incompleteQtyList.length} ครั้ง</span>
+                  </h3>
+                  <p className="text-2xs text-slate-500">คอลัมน์: วันที่ | ชื่อยา | จำนวน | ความคลาดเคลื่อน</p>
+                </div>
+                {!isReadOnly && (
+                  <button onClick={() => openAddModal('incomplete_qty')} className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer">
+                    + เพิ่มรายการจัดยาไม่ครบจำนวน
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <th className="py-3 px-4 w-28">วันที่</th>
+                      <th className="py-3 px-4">ชื่อยา</th>
+                      <th className="py-3 px-4 text-center">จำนวน</th>
+                      <th className="py-3 px-4 text-center">ความคลาดเคลื่อน</th>
+                      {!isReadOnly && <th className="py-3 px-3 text-center w-20">จัดการ</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {incompleteQtyList.length === 0 ? (
+                      <tr><td colSpan={isReadOnly ? 4 : 5} className="py-8 text-center text-slate-400">ยังไม่มีรายการจัดยาไม่ครบจำนวน (0 ครั้ง)</td></tr>
+                    ) : (
+                      incompleteQtyList.map(item => (
+                        <tr key={item.id} className="hover:bg-amber-50/30">
+                          <td className="py-2.5 px-4 font-semibold whitespace-nowrap">{formatThaiDateShort(item.date)}</td>
+                          <td className="py-2.5 px-4 font-bold text-slate-900">{item.drugName}</td>
+                          <td className="py-2.5 px-4 text-center font-bold text-emerald-700 bg-emerald-50/30">{item.targetQty}</td>
+                          <td className="py-2.5 px-4 text-center font-bold text-amber-700 bg-amber-50/40">{item.errorQty}</td>
+                          {!isReadOnly && (
+                            <td className="py-2.5 px-3 text-center">
+                              <button onClick={() => openEditModal(item)} className="text-teal-600 hover:underline mr-2 cursor-pointer">แก้</button>
+                              <button onClick={() => handleDelete(item.id)} className="text-rose-600 hover:underline cursor-pointer">ลบ</button>
+                            </td>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TABLE 3: จัดยาไม่ครบในตะกร้า */}
+          {(activeFilter === 'all' || activeFilter === 'incomplete_basket') && (
+            <div className="bg-white rounded-2xl border border-purple-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 bg-gradient-to-r from-purple-50 to-white border-b border-purple-200 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 font-prompt flex items-center gap-2">
+                    3. จัดยาไม่ครบจำนวน (ยาในตะกร้า)
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold">{incompleteBasketList.length} ครั้ง</span>
+                  </h3>
+                  <p className="text-2xs text-slate-500">คอลัมน์: วันที่ | จัดยาไม่ครบจำนวน (ยาในตะกร้า) | จำนวนที่ขาด</p>
+                </div>
+                {!isReadOnly && (
+                  <button onClick={() => openAddModal('incomplete_basket')} className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer">
+                    + เพิ่มรายการยาไม่ครบในตะกร้า
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <th className="py-3 px-4 w-28">วันที่</th>
+                      <th className="py-3 px-4">จัดยาไม่ครบจำนวน (ยาในตะกร้า)</th>
+                      <th className="py-3 px-3 text-center">จำนวนที่ขาด</th>
+                      {!isReadOnly && <th className="py-3 px-3 text-center w-20">จัดการ</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {incompleteBasketList.length === 0 ? (
+                      <tr><td colSpan={isReadOnly ? 3 : 4} className="py-8 text-center text-slate-400">ยังไม่มีรายการยาไม่ครบในตะกร้า (0 ครั้ง)</td></tr>
+                    ) : (
+                      incompleteBasketList.map(item => (
+                        <tr key={item.id} className="hover:bg-purple-50/30">
+                          <td className="py-2.5 px-4 font-semibold whitespace-nowrap">{formatThaiDateShort(item.date)}</td>
+                          <td className="py-2.5 px-4 font-bold text-purple-900">{item.drugName}</td>
+                          <td className="py-2.5 px-3 text-center font-bold text-purple-700">{item.missingCount || 1} รายการ</td>
+                          {!isReadOnly && (
+                            <td className="py-2.5 px-3 text-center">
+                              <button onClick={() => openEditModal(item)} className="text-teal-600 hover:underline mr-2 cursor-pointer">แก้</button>
+                              <button onClick={() => handleDelete(item.id)} className="text-rose-600 hover:underline cursor-pointer">ลบ</button>
+                            </td>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TABLE 4: จัดยาผิดความแรง */}
+          {(activeFilter === 'all' || activeFilter === 'wrong_strength') && (
+            <div className="bg-white rounded-2xl border border-sky-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 bg-gradient-to-r from-sky-50 to-white border-b border-sky-200 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 font-prompt flex items-center gap-2">
+                    4. จัดยาผิดความแรง (Wrong Strength)
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 font-bold">{wrongStrengthList.length} ครั้ง</span>
+                  </h3>
+                  <p className="text-2xs text-slate-500">คอลัมน์: วันที่ | รายการยาที่ต้องการ | ความคลาดเคลื่อน (ความแรงที่จัดผิด)</p>
+                </div>
+                {!isReadOnly && (
+                  <button onClick={() => openAddModal('wrong_strength')} className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer">
+                    + เพิ่มรายการจัดยาผิดความแรง
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <th className="py-3 px-4 w-28">วันที่</th>
+                      <th className="py-3 px-4">รายการยาที่ต้องการ</th>
+                      <th className="py-3 px-2 w-8 text-center">➔</th>
+                      <th className="py-3 px-4">ความคลาดเคลื่อน (ความแรงที่จัดผิด)</th>
+                      {!isReadOnly && <th className="py-3 px-3 text-center w-20">จัดการ</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {wrongStrengthList.length === 0 ? (
+                      <tr><td colSpan={isReadOnly ? 4 : 5} className="py-8 text-center text-slate-400">ยังไม่มีรายการจัดยาผิดความแรง (0 ครั้ง)</td></tr>
+                    ) : (
+                      wrongStrengthList.map(item => (
+                        <tr key={item.id} className="hover:bg-sky-50/30">
+                          <td className="py-2.5 px-4 font-semibold whitespace-nowrap">{formatThaiDateShort(item.date)}</td>
+                          <td className="py-2.5 px-4 font-bold text-emerald-800 bg-emerald-50/30">{item.targetDrug}</td>
+                          <td className="py-2.5 px-2 text-center text-sky-500 font-bold">➔</td>
+                          <td className="py-2.5 px-4 font-bold text-sky-800 bg-sky-50/30">{item.errorDrug}</td>
+                          {!isReadOnly && (
+                            <td className="py-2.5 px-3 text-center">
+                              <button onClick={() => openEditModal(item)} className="text-teal-600 hover:underline mr-2 cursor-pointer">แก้</button>
+                              <button onClick={() => handleDelete(item.id)} className="text-rose-600 hover:underline cursor-pointer">ลบ</button>
+                            </td>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Focused Dynamic Modal (ไม่มีผู้จัดยา & ตัดความแรง/รูปแบบออก) */}
+          {modalType && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+              <div className="bg-white rounded-2xl p-6 max-w-xl w-full shadow-2xl border border-slate-100 my-6">
+                <h3 className="font-bold font-prompt text-base mb-4 text-slate-800 border-b pb-2">
+                  {modalType === 'wrong_drug'
+                    ? '1. บันทึกรายการจัดยาผิดชนิด'
+                    : modalType === 'incomplete_qty'
+                    ? '2. บันทึกรายการจัดยาไม่ครบจำนวน'
+                    : modalType === 'incomplete_basket'
+                    ? '3. บันทึกรายการจัดยาไม่ครบในตะกร้า'
+                    : '4. บันทึกรายการจัดยาผิดความแรง'}
+                </h3>
+                <form onSubmit={handleSave} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="block font-semibold mb-1">วันที่เกิดเหตุการณ์:</label>
+                    <input type="date" required value={formDate} onChange={e => setFormDate(e.target.value)} className="w-full sm:w-1/2 border border-slate-300 p-2 rounded-xl" />
+                  </div>
+
+                  {modalType === 'wrong_drug' && (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <DrugSelector
+                          label="รายการยาที่ต้องการ:"
+                          labelClass="text-emerald-800"
+                          value={targetDrug}
+                          onChange={setTargetDrug}
+                          drugCatalog={drugCatalog}
+                          onAddToCatalog={handleAddDrugToCatalog}
+                          placeholder="เช่น B1, tramadol, Insulin Mixtard 30/70 iu"
+                          inputClass="border-emerald-300 bg-emerald-50/30"
+                        />
+                        <DrugSelector
+                          label="ความคลาดเคลื่อน (ยาที่จัดผิด):"
+                          labelClass="text-rose-800"
+                          value={errorDrug}
+                          onChange={setErrorDrug}
+                          drugCatalog={drugCatalog}
+                          onAddToCatalog={handleAddDrugToCatalog}
+                          placeholder="เช่น MTV, diclofenac, Insulin NPH 100 iu"
+                          inputClass="border-rose-300 bg-rose-50/30"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold mb-1">ประเภทความผิด:</label>
+                        <select value={subType} onChange={e => setSubType(e.target.value)} className="w-full border border-slate-300 p-2 rounded-xl">
+                          {SUBTYPES.filter(s => !s.legacyOnly || editingItem?.subType === 'wrong_strength').map(s => (
+                            <option key={s.id} value={s.id}>{s.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
+
+                  {modalType === 'wrong_strength' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <DrugSelector
+                        label="รายการยาที่ต้องการ:"
+                        labelClass="text-emerald-800"
+                        value={targetDrug}
+                        onChange={setTargetDrug}
+                        drugCatalog={drugCatalog}
+                        onAddToCatalog={handleAddDrugToCatalog}
+                        placeholder="เช่น Enalapril 20 mg, risperidone 1 mg"
+                        inputClass="border-emerald-300 bg-emerald-50/30"
+                      />
+                      <DrugSelector
+                        label="ความคลาดเคลื่อน (ความแรงที่จัดผิด):"
+                        labelClass="text-sky-800"
+                        value={errorDrug}
+                        onChange={setErrorDrug}
+                        drugCatalog={drugCatalog}
+                        onAddToCatalog={handleAddDrugToCatalog}
+                        placeholder="เช่น Enalapril 5 mg, risperidone 2 mg"
+                        inputClass="border-sky-300 bg-sky-50/30"
+                      />
+                    </div>
+                  )}
+
+                  {modalType === 'incomplete_qty' && (
+                    <>
+                      <DrugSelector
+                        label="ชื่อยา:"
+                        value={drugNameQty}
+                        onChange={setDrugNameQty}
+                        drugCatalog={drugCatalog}
+                        onAddToCatalog={handleAddDrugToCatalog}
+                        placeholder="เช่น risperidone 2 mg, Atorvastatin 40 mg"
+                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-semibold text-emerald-800 mb-1">จำนวน (ที่ต้องการ):</label>
+                          <input type="text" required placeholder="เช่น 255 หรือ 30 เม็ด" value={targetQty} onChange={e => setTargetQty(e.target.value)} className="w-full border border-emerald-300 bg-emerald-50/30 p-2 rounded-xl" />
+                        </div>
+                        <div>
+                          <label className="block font-semibold text-amber-800 mb-1">ความคลาดเคลื่อน:</label>
+                          <input type="text" required placeholder="เช่น 195 หรือ ขาด 10 เม็ด" value={errorQty} onChange={e => setErrorQty(e.target.value)} className="w-full border border-amber-300 bg-amber-50/30 p-2 rounded-xl" />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {modalType === 'incomplete_basket' && (
+                    <>
+                      <DrugSelector
+                        label="จัดยาไม่ครบจำนวน (ยาในตะกร้า):"
+                        labelClass="text-purple-900"
+                        value={drugNameBasket}
+                        onChange={setDrugNameBasket}
+                        drugCatalog={drugCatalog}
+                        onAddToCatalog={handleAddDrugToCatalog}
+                        placeholder="เช่น Omeprazole 20 mg, Berodual MDI"
+                        inputClass="border-purple-300 bg-purple-50/30"
+                      />
+                      <div>
+                        <label className="block font-semibold mb-1">จำนวนที่ขาด (รายการ):</label>
+                        <input type="number" min="1" value={missingCount} onChange={e => setMissingCount(e.target.value)} className="w-full border border-slate-300 p-2 rounded-xl" />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-3 border-t">
+                    <button type="button" onClick={() => setModalType(null)} className="px-4 py-2 bg-slate-100 rounded-xl font-medium cursor-pointer">ยกเลิก</button>
+                    <button type="submit" className="px-5 py-2 bg-teal-600 text-white font-bold rounded-xl shadow-xs cursor-pointer">บันทึกข้อมูล</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // VIEW 2: แดชบอร์ด & สรุป Mederror รายบุคคล / คู่ยา
+    // =========================================================================
+    function groupDrugPairs(list) {
+      const map = {};
+      list.forEach(i => {
+        const key = `${i.targetDrug} ➔ ${i.errorDrug}`;
+        if (!map[key]) map[key] = { pair: key, target: i.targetDrug, error: i.errorDrug, subType: i.subType, count: 0 };
+        map[key].count += 1;
+      });
+      return Object.values(map).sort((a,b) => b.count - a.count);
+    }
+
+    function DashboardView({ currentMonth, dispensingRecords, staffList, errorTypes = DEFAULT_ERROR_TYPES, detailedErrors, staffMatrixErrors = [], keyingErrors }) {
+      const monthTitle = formatThaiMonthYear(currentMonth);
+      const dispErrorTypes = errorTypes?.dispensing || DEFAULT_ERROR_TYPES.dispensing;
+      const monthlyDisp = dispensingRecords.filter(r => r.date.startsWith(currentMonth));
+      const monthlyDetailed = (detailedErrors || []).filter(e => e.date.startsWith(currentMonth));
+      const monthlyMatrix = (staffMatrixErrors || []).filter(e => e.date.startsWith(currentMonth));
+      const monthlyKeying = (keyingErrors || []).filter(k => k.date.startsWith(currentMonth));
+      
+      const wrongDrugList = monthlyDetailed.filter(e => e.type === 'wrong_drug');
+      const incompleteQtyList = monthlyDetailed.filter(e => e.type === 'incomplete_qty');
+      const incompleteBasketList = monthlyDetailed.filter(e => e.type === 'incomplete_basket');
+      const wrongStrengthList = monthlyDetailed.filter(e => e.type === 'wrong_strength');
+
+      let totalDispensed = 0;
+      monthlyDisp.forEach(r => Object.values(r.staffCounts || {}).forEach(c => totalDispensed += Number(c)||0));
+      const totalPatients = monthlyDisp.reduce((s, r) => s + (Number(r.ipdCount)||0) + (Number(r.opdCount)||0), 0);
+
+      // Pair groupings
+      const drugPairs = groupDrugPairs(wrongDrugList);
+      const strengthPairs = groupDrugPairs(wrongStrengthList);
+
+      // Individual Staff Mederror Stats
+      const staffStats = staffList.map(s => {
+        let dispensed = 0;
+        monthlyDisp.forEach(r => { dispensed += Number(r.staffCounts?.[s.id]) || 0; });
+
+        const staffMatrix = monthlyMatrix.filter(e => e.staffId === s.id);
+        const dispByType = {};
+        dispErrorTypes.forEach(t => {
+          dispByType[t.id] = staffMatrix.filter(e => e.errorTypeId === t.id).length;
+        });
+
+        const dispErrors = staffMatrix.length;
+        const keyErrors = monthlyKeying.filter(k => k.staffId === s.id).length;
+        const totalErrors = dispErrors + keyErrors;
+        const ratePer1000 = dispensed > 0 ? ((dispErrors / dispensed) * 1000).toFixed(2) : '0.00';
+
+        return { ...s, dispensed, dispByType, dispErrors, keyErrors, totalErrors, ratePer1000 };
+      });
+      const zeroErrorStaffCount = staffStats.filter(s => s.totalErrors === 0).length;
+
+      const staffErrorChartData = {
+        labels: staffStats.map(s => s.shortName || s.fullName),
+        datasets: [
+          {
+            label: 'Mederror การจัดยา (ครั้ง)',
+            data: staffStats.map(s => s.dispErrors),
+            backgroundColor: '#f43f5e',
+            borderRadius: 6
+          },
+          {
+            label: 'Mederror การคีย์ยา (ครั้ง)',
+            data: staffStats.map(s => s.keyErrors),
+            backgroundColor: '#6366f1',
+            borderRadius: 6
+          }
+        ]
+      };
+
+      const catChartData = {
+        labels: ['1. จัดยาผิดชนิด', '2. จัดยาไม่ครบจำนวน', '3. จัดยาไม่ครบในตะกร้า', '4. จัดยาผิดความแรง'],
+        datasets: [{
+          data: monthlyDetailed.length === 0 ? [1] : [wrongDrugList.length, incompleteQtyList.length, incompleteBasketList.length, wrongStrengthList.length],
+          backgroundColor: monthlyDetailed.length === 0 ? ['#e2e8f0'] : ['#f43f5e', '#f59e0b', '#9333ea', '#0284c7'],
+          borderWidth: 2, borderColor: '#fff'
+        }]
+      };
+
+      const combinedPairs = [...drugPairs, ...strengthPairs];
+      const pairChartData = {
+        labels: combinedPairs.slice(0, 8).map(p => p.pair),
+        datasets: [{
+          label: 'จำนวนครั้ง',
+          data: combinedPairs.slice(0, 8).map(p => p.count),
+          backgroundColor: '#e11d48',
+          borderRadius: 6
+        }]
+      };
+
+      return (
+        <div className="space-y-6 pb-10">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-teal-700 to-slate-900 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+              <span className="bg-teal-500/20 text-teal-200 border border-teal-400/30 px-3 py-0.5 rounded-full text-xs font-semibold">แดชบอร์ดสรุปผลรายเดือน & รายบุคคล</span>
+              <h2 className="text-2xl font-bold font-prompt mt-2">สรุปผลห้องยา ประจำเดือน {monthTitle}</h2>
+              <p className="text-teal-100 text-xs mt-1">สรุปจัดยาผิดชนิด, จัดยาไม่ครบจำนวน, ยาไม่ครบในตะกร้า, จัดยาผิดความแรง และแดชบอร์ด Mederror รายบุคคล</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/15 text-right">
+              <p className="text-2xs text-teal-200">ยอดจัดยารวมเดือนนี้</p>
+              <p className="text-2xl font-bold font-prompt">{totalDispensed.toLocaleString()} ใบ</p>
+              <p className="text-2xs text-emerald-300">คนไข้รวม {totalPatients} คน • อัตราผิด {totalDispensed > 0 ? ((monthlyDetailed.length/totalDispensed)*1000).toFixed(2) : '0.00'}/1,000</p>
+            </div>
+          </div>
+
+          {/* 4 Main Error KPI Cards + Total */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-rose-200 shadow-xs">
+              <span className="text-xs font-bold text-rose-700">1. จัดยาผิดชนิด</span>
+              <p className="text-3xl font-bold font-prompt text-rose-600 mt-2">{wrongDrugList.length} <span className="text-xs text-slate-400 font-normal">ครั้ง</span></p>
+              <div className="flex flex-wrap gap-1.5 mt-2 text-2xs">
+                <span className="bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded">ต่างตัวยา: {wrongDrugList.filter(i=>i.subType==='different_drug').length}</span>
+                {wrongDrugList.some(i=>i.subType==='wrong_mix') && (
+                  <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded">ยาผสม: {wrongDrugList.filter(i=>i.subType==='wrong_mix').length}</span>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-xs">
+              <span className="text-xs font-bold text-amber-700">2. จัดยาไม่ครบจำนวน</span>
+              <p className="text-3xl font-bold font-prompt text-amber-600 mt-2">{incompleteQtyList.length} <span className="text-xs text-slate-400 font-normal">ครั้ง</span></p>
+              <p className="text-2xs text-slate-500 mt-2">ความคลาดเคลื่อนจำนวนเม็ด/แผงยา</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-purple-200 shadow-xs">
+              <span className="text-xs font-bold text-purple-700">3. จัดยาไม่ครบ (ในตะกร้า)</span>
+              <p className="text-3xl font-bold font-prompt text-purple-600 mt-2">{incompleteBasketList.length} <span className="text-xs text-slate-400 font-normal">ครั้ง</span></p>
+              <p className="text-2xs text-slate-500 mt-2">ลืมหยิบรายการยาใส่ตะกร้า</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-sky-200 shadow-xs">
+              <span className="text-xs font-bold text-sky-700">4. จัดยาผิดความแรง</span>
+              <p className="text-3xl font-bold font-prompt text-sky-600 mt-2">{wrongStrengthList.length} <span className="text-xs text-slate-400 font-normal">ครั้ง</span></p>
+              <p className="text-2xs text-slate-500 mt-2">จัดขนาด/ความแรงยาผิดพลาด</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-teal-200 shadow-xs">
+              <span className="text-xs font-bold text-teal-800">รวมความคลาดเคลื่อนทั้งหมด</span>
+              <p className="text-3xl font-bold font-prompt text-slate-800 mt-2">{monthlyDetailed.length} <span className="text-xs text-slate-400 font-normal">ครั้ง</span></p>
+              <p className="text-2xs text-teal-700 mt-2">อัตราผิด: {totalDispensed > 0 ? ((monthlyDetailed.length/totalDispensed)*1000).toFixed(2) : '0.00'} / 1,000 ใบ</p>
+            </div>
+          </div>
+
+          {/* SECTION: แดชบอร์ดสรุป Mederror รายบุคคล */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="px-5 py-4 bg-gradient-to-r from-indigo-50/70 via-rose-50/40 to-white border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold font-prompt text-slate-800">แดชบอร์ดสรุป Mederror รายบุคคล ประจำเดือน {monthTitle}</h3>
+                <p className="text-xs text-slate-500">เปรียบเทียบยอดจัดยารวมกับจำนวนความคลาดเคลื่อนการจัดยาและคีย์ยารายบุคคล</p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs font-bold">
+                <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-200">ผิดจัดยารวม {monthlyMatrix.length} ครั้ง</span>
+                <span className="px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">ผิดคีย์ยารวม {monthlyKeying.length} ครั้ง</span>
+                <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">0 Error: {zeroErrorStaffCount}/{staffStats.length} คน</span>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-6">
+              <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/70">
+                <h4 className="text-xs font-bold text-slate-700 font-prompt mb-2">กราฟเปรียบเทียบ Mederror รายบุคคล (การจัดยา vs การคีย์ยา)</h4>
+                <ChartBox
+                  type="bar"
+                  data={staffErrorChartData}
+                  options={{ plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }}
+                  height="220px"
+                />
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left border-collapse border border-slate-200">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300 text-center">
+                      <th className="py-2.5 px-3 text-left border-r border-slate-200">ชื่อเจ้าหน้าที่</th>
+                      <th className="py-2.5 px-3 border-r border-slate-200">ยอดจัดยา (ใบ)</th>
+                      {dispErrorTypes.map(t => (
+                        <th key={t.id} className="py-2.5 px-2.5 border-r border-slate-200">{t.name}</th>
+                      ))}
+                      <th className="py-2.5 px-3 border-r border-slate-200 bg-rose-50 text-rose-800">รวมผิดจัดยา</th>
+                      <th className="py-2.5 px-3 border-r border-slate-200 bg-indigo-50 text-indigo-800">รวมผิดคีย์ยา</th>
+                      <th className="py-2.5 px-3 border-r border-slate-200 bg-amber-50 text-amber-900">รวมทั้งหมด</th>
+                      <th className="py-2.5 px-3">อัตรา/1,000 ใบ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {staffStats.map(s => (
+                      <tr key={s.id} className="hover:bg-slate-50/80">
+                        <td className="py-2.5 px-3 font-semibold text-slate-900 border-r border-slate-200">
+                          <span className="inline-block w-2.5 h-2.5 rounded-full mr-2" style={{ backgroundColor: s.color || '#0d9488' }}></span>
+                          {s.fullName}
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-bold text-teal-700 border-r border-slate-200">{s.dispensed.toLocaleString()}</td>
+                        {dispErrorTypes.map(t => {
+                          const val = s.dispByType[t.id] || 0;
+                          return (
+                            <td key={t.id} className={`py-2.5 px-2.5 text-center border-r border-slate-200 font-semibold ${val > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                              {val}
+                            </td>
+                          );
+                        })}
+                        <td className="py-2.5 px-3 text-center border-r border-slate-200 bg-rose-50/40">
+                          <span className={`px-2 py-0.5 rounded-full font-bold ${s.dispErrors > 0 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                            {s.dispErrors}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center border-r border-slate-200 bg-indigo-50/40 font-bold text-indigo-700">
+                          {s.canKey || s.keyErrors > 0 ? s.keyErrors : '-'}
+                        </td>
+                        <td className="py-2.5 px-3 text-center border-r border-slate-200 bg-amber-50/40 font-extrabold text-slate-900">{s.totalErrors}</td>
+                        <td className="py-2.5 px-3 text-center font-semibold text-slate-600">{s.ratePer1000}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-amber-200/70 font-extrabold text-slate-900 border-t-2 border-slate-300 text-center">
+                      <td className="py-2.5 px-3 text-left border-r border-slate-300">รวมทั้งหมด</td>
+                      <td className="py-2.5 px-3 border-r border-slate-300">{totalDispensed.toLocaleString()}</td>
+                      {dispErrorTypes.map(t => (
+                        <td key={t.id} className="py-2.5 px-2.5 border-r border-slate-300">
+                          {monthlyMatrix.filter(e => e.errorTypeId === t.id).length}
+                        </td>
+                      ))}
+                      <td className="py-2.5 px-3 border-r border-slate-300 text-rose-800">{monthlyMatrix.length}</td>
+                      <td className="py-2.5 px-3 border-r border-slate-300 text-indigo-800">{monthlyKeying.length}</td>
+                      <td className="py-2.5 px-3 border-r border-slate-300 bg-rose-600 text-white">{monthlyMatrix.length + monthlyKeying.length}</td>
+                      <td className="py-2.5 px-3">{totalDispensed > 0 ? ((monthlyMatrix.length / totalDispensed) * 1000).toFixed(2) : '0.00'}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Drug Pair & Wrong Strength Analysis Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Table: Drug Pairs */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="px-5 py-4 bg-rose-50/40 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-sm font-bold font-prompt text-slate-800">แยกคู่ยาที่จัดผิดชนิดยา</h3>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">{drugPairs.length} คู่ยา</span>
+              </div>
+              <div className="p-4 overflow-x-auto">
+                {drugPairs.length === 0 ? (
+                  <p className="text-center text-xs text-slate-400 py-8">ยังไม่มีข้อมูลคู่ยาที่จัดผิดชนิด (0 ครั้ง)</p>
+                ) : (
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-600 font-semibold border-b">
+                        <th className="py-2 px-3">รายการยาที่ต้องการ</th>
+                        <th className="py-2 px-1 text-center">➔</th>
+                        <th className="py-2 px-3">ความคลาดเคลื่อน</th>
+                        <th className="py-2 px-2 text-center">ประเภท</th>
+                        <th className="py-2 px-3 text-right">จำนวน</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {drugPairs.map((p, i) => (
+                        <tr key={i}>
+                          <td className="py-2 px-3 font-bold text-emerald-800">{p.target}</td>
+                          <td className="py-2 px-1 text-center text-rose-500">➔</td>
+                          <td className="py-2 px-3 font-bold text-rose-700">{p.error}</td>
+                          <td className="py-2 px-2 text-center">
+                            <span className={`text-2xs px-2 py-0.5 rounded-full font-semibold ${p.subType==='wrong_mix' ? 'bg-purple-100 text-purple-800' : p.subType==='wrong_strength' ? 'bg-sky-100 text-sky-800' : 'bg-rose-100 text-rose-800'}`}>
+                              {p.subType==='wrong_mix' ? 'ยาผสม' : p.subType==='wrong_strength' ? 'ผิดความแรง' : 'ต่างตัวยา'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold">{p.count} ครั้ง</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            {/* Table: Wrong Strength Pairs */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="px-5 py-4 bg-sky-50/40 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-sm font-bold font-prompt text-slate-800">สรุปคู่ยาที่จัดผิดความแรง (Wrong Strength Pairs)</h3>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">{strengthPairs.length} คู่ยา</span>
+              </div>
+              <div className="p-4 overflow-x-auto">
+                {strengthPairs.length === 0 ? (
+                  <p className="text-center text-xs text-slate-400 py-8">ยังไม่มีรายการจัดยาผิดความแรง (0 ครั้ง)</p>
+                ) : (
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-600 font-semibold border-b">
+                        <th className="py-2 px-3">รายการยาที่ต้องการ</th>
+                        <th className="py-2 px-1 text-center">➔</th>
+                        <th className="py-2 px-3">ความคลาดเคลื่อน (ความแรงที่จัดผิด)</th>
+                        <th className="py-2 px-3 text-right">จำนวน</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {strengthPairs.map((p, i) => (
+                        <tr key={i}>
+                          <td className="py-2 px-3 font-bold text-emerald-800">{p.target}</td>
+                          <td className="py-2 px-1 text-center text-sky-500">➔</td>
+                          <td className="py-2 px-3 font-bold text-sky-800">{p.error}</td>
+                          <td className="py-2 px-3 text-right font-bold">{p.count} ครั้ง</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <h3 className="text-sm font-bold font-prompt text-slate-800 mb-3">สัดส่วนความคลาดเคลื่อน 4 กลุ่ม</h3>
+              <ChartBox type="doughnut" data={catChartData} options={{ cutout: '65%', plugins: { legend: { position: 'bottom' } } }} height="220px" />
+            </div>
+
+            <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <h3 className="text-sm font-bold font-prompt text-slate-800 mb-3">กราฟคู่ยาที่จัดผิดพบบ่อย (LASA High-Risk Pairs)</h3>
+              {combinedPairs.length === 0 ? (
+                <div className="h-[220px] flex items-center justify-center text-xs text-slate-400">ยังไม่มีข้อมูลคู่ยาที่จัดผิดในเดือนนี้</div>
+              ) : (
+                <ChartBox type="bar" data={pairChartData} options={{ indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }} height="220px" />
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // VIEW 3: Mederror Matrix Summary (รายบุคคล - กด +/- แยกจากตารางยา)
+    // =========================================================================
+    function MederrorMatrixView({ currentMonth, staffMatrixErrors, setStaffMatrixErrors, keyingErrors, setKeyingErrors, staffList, errorTypes, onClearAll, onGoToDetailed, isReadOnly = false }) {
+      const activeStaff = staffList.filter(s => s.canDispense);
+      const keyStaff = staffList.filter(s => s.canKey);
+      const monthlyMatrix = (staffMatrixErrors || []).filter(e => e.date.startsWith(currentMonth));
+      const monthlyKey = (keyingErrors || []).filter(k => k.date.startsWith(currentMonth));
+
+      const addMatrixItem = (setList, prefix, staffId, typeId) => {
+        setList(prev => [...prev, { id: `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,5)}`, date: `${currentMonth}-01`, staffId, errorTypeId: typeId }]);
+      };
+
+      const subMatrixItem = (list, setList, staffId, typeId) => {
+        const target = list.find(e => e.staffId === staffId && e.errorTypeId === typeId);
+        if (target) setList(prev => prev.filter(e => e.id !== target.id));
+      };
+
+      return (
+        <div className="space-y-6 pb-10">
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 flex flex-wrap justify-between items-center gap-3">
+            <div>
+              <h2 className="text-lg font-bold font-prompt text-slate-800">สรุป Mederror รายบุคคล (กด + / - บันทึกรายบุคคล)</h2>
+              <p className="text-xs text-slate-500">ประจำเดือน {formatThaiMonthYear(currentMonth)} (แยกจากตารางรายการยา 4 ตาราง)</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onGoToDetailed} className="px-4 py-2 bg-teal-600 text-white rounded-xl text-xs font-bold cursor-pointer">ไปหน้าบันทึกแยก 4 ตาราง (ระบุชื่อยา) ➔</button>
+              {!isReadOnly && (
+                <button onClick={onClearAll} className="px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-700 rounded-xl text-xs font-bold cursor-pointer">ล้างข้อมูลเป็น 0</button>
+              )}
+            </div>
+          </div>
+
+          {/* Dispensing Matrix */}
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-xs overflow-hidden">
+            <div className="bg-rose-50 px-5 py-3 border-b border-slate-300 font-bold font-prompt text-sm flex justify-between">
+              <span>ความคลาดเคลื่อนในการจัดยา (Dispensing Error)</span>
+              <span className="text-xs bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full">รวม {monthlyMatrix.length} ครั้ง</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 font-bold border-b border-slate-300 text-center">
+                    <th className="py-3 px-4 border-r border-slate-300 text-left w-56 bg-slate-200">ชื่อ</th>
+                    {errorTypes.dispensing.map(t => <th key={t.id} className="py-3 px-3 border-r border-slate-300">{t.name}</th>)}
+                    <th className="py-3 px-4 bg-amber-100 font-extrabold w-24">รวม</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {activeStaff.map(s => {
+                    const tot = monthlyMatrix.filter(e => e.staffId === s.id).length;
+                    return (
+                      <tr key={s.id}>
+                        <td className="py-2.5 px-4 border-r border-slate-300 font-medium bg-slate-50">{s.fullName}</td>
+                        {errorTypes.dispensing.map(t => {
+                          const cnt = monthlyMatrix.filter(e => e.staffId === s.id && e.errorTypeId === t.id).length;
+                          return (
+                            <td key={t.id} className="py-2 px-3 border-r border-slate-300 text-center">
+                              <div className="inline-flex items-center gap-1.5">
+                                {!isReadOnly && cnt > 0 && <button onClick={() => subMatrixItem(monthlyMatrix, setStaffMatrixErrors, s.id, t.id)} className="w-5 h-5 bg-slate-100 hover:bg-rose-100 rounded text-xs font-bold cursor-pointer">-</button>}
+                                <span className={`w-7 font-bold ${cnt > 0 ? 'text-rose-600 bg-rose-50 rounded border border-rose-200 py-0.5' : 'text-slate-400'}`}>{cnt}</span>
+                                {!isReadOnly && <button onClick={() => addMatrixItem(setStaffMatrixErrors, 'mat', s.id, t.id)} className="w-5 h-5 bg-slate-100 hover:bg-teal-100 rounded text-xs font-bold cursor-pointer">+</button>}
+                              </div>
+                            </td>
+                          );
+                        })}
+                        <td className="py-2.5 px-4 text-center font-bold bg-amber-50">{tot}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-amber-300 font-bold border-t-2 border-slate-400">
+                    <td className="py-3 px-4 border-r border-slate-400">รวม</td>
+                    {errorTypes.dispensing.map(t => <td key={t.id} className="py-3 px-3 border-r border-slate-400 text-center">{monthlyMatrix.filter(e => e.errorTypeId === t.id).length}</td>)}
+                    <td className="py-3 px-4 text-center font-black text-white bg-rose-600 text-sm">{monthlyMatrix.length}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* Keying Matrix */}
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-xs overflow-hidden">
+            <div className="bg-indigo-50 px-5 py-3 border-b border-slate-300 font-bold font-prompt text-sm flex justify-between">
+              <span>ความคลาดเคลื่อนในการคีย์ยา (Keying Error)</span>
+              <span className="text-xs bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">รวม {monthlyKey.length} ครั้ง</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 font-bold border-b border-slate-300 text-center">
+                    <th className="py-3 px-4 border-r border-slate-300 text-left w-56 bg-slate-200">ชื่อ</th>
+                    {errorTypes.keying.map(t => <th key={t.id} className="py-3 px-3 border-r border-slate-300">{t.name}</th>)}
+                    <th className="py-3 px-4 bg-amber-100 font-extrabold w-24">รวม</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {keyStaff.map(s => {
+                    const tot = monthlyKey.filter(k => k.staffId === s.id).length;
+                    return (
+                      <tr key={s.id}>
+                        <td className="py-2.5 px-4 border-r border-slate-300 font-medium bg-slate-50">{s.fullName}</td>
+                        {errorTypes.keying.map(t => {
+                          const cnt = monthlyKey.filter(k => k.staffId === s.id && k.errorTypeId === t.id).length;
+                          return (
+                            <td key={t.id} className="py-2 px-3 border-r border-slate-300 text-center">
+                              <div className="inline-flex items-center gap-1.5">
+                                {!isReadOnly && cnt > 0 && <button onClick={() => subMatrixItem(monthlyKey, setKeyingErrors, s.id, t.id)} className="w-5 h-5 bg-slate-100 hover:bg-rose-100 rounded text-xs font-bold cursor-pointer">-</button>}
+                                <span className={`w-7 font-bold ${cnt > 0 ? 'text-indigo-600 bg-indigo-50 rounded border border-indigo-200 py-0.5' : 'text-slate-400'}`}>{cnt}</span>
+                                {!isReadOnly && <button onClick={() => addMatrixItem(setKeyingErrors, 'k', s.id, t.id)} className="w-5 h-5 bg-slate-100 hover:bg-indigo-100 rounded text-xs font-bold cursor-pointer">+</button>}
+                              </div>
+                            </td>
+                          );
+                        })}
+                        <td className="py-2.5 px-4 text-center font-bold bg-indigo-50/40">{tot}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100 font-bold border-t-2 border-slate-400">
+                    <td className="py-3 px-4 border-r border-slate-400">รวม</td>
+                    {errorTypes.keying.map(t => <td key={t.id} className="py-3 px-3 border-r border-slate-400 text-center">{monthlyKey.filter(k=>k.errorTypeId===t.id).length}</td>)}
+                    <td className="py-3 px-4 text-center font-black text-white bg-indigo-600 text-sm">{monthlyKey.length}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // =========================================================================
+    // VIEW 4: Daily Dispensing Log
+    // =========================================================================
+    function DailyDispensingView({ currentMonth, dispensingRecords, setDispensingRecords, staffList, isReadOnly = false }) {
+      const activeStaff = staffList.filter(s => s.canDispense);
+      const monthlyRecords = dispensingRecords.filter(r => r.date.startsWith(currentMonth)).sort((a,b) => a.date.localeCompare(b.date));
+      const [showModal, setShowModal] = useState(false);
+      const [editingRecord, setEditingRecord] = useState(null);
+      const [newDate, setNewDate] = useState(`${currentMonth}-01`);
+      const [newIpd, setNewIpd] = useState(0);
+      const [newOpd, setNewOpd] = useState(0);
+      const [newStaffCounts, setNewStaffCounts] = useState({});
+
+      const openAddModal = () => {
+        setEditingRecord(null);
+        setNewDate(`${currentMonth}-01`);
+        setNewIpd(0);
+        setNewOpd(0);
+        const initialCounts = {};
+        activeStaff.forEach(s => { initialCounts[s.id] = 0; });
+        setNewStaffCounts(initialCounts);
+        setShowModal(true);
+      };
+
+      const openEditModal = (rec) => {
+        setEditingRecord(rec);
+        setNewDate(rec.date);
+        setNewIpd(rec.ipdCount || 0);
+        setNewOpd(rec.opdCount || 0);
+        setNewStaffCounts({ ...(rec.staffCounts || {}) });
+        setShowModal(true);
+      };
+
+      const handleDeleteDay = (id, date) => {
+        if (confirm(`ยืนยันการลบข้อมูลการจัดยาวันที่ ${formatThaiDateShort(date)} หรือไม่?`)) {
+          setDispensingRecords(prev => prev.filter(r => r.id !== id));
+        }
+      };
+
+      const handleSaveDay = (e) => {
+        e.preventDefault();
+        const rec = {
+          id: editingRecord ? editingRecord.id : `d-${Date.now()}`,
+          date: newDate,
+          ipdCount: Number(newIpd) || 0,
+          opdCount: Number(newOpd) || 0,
+          staffCounts: newStaffCounts
+        };
+        if (editingRecord) {
+          const dupOther = dispensingRecords.find(r => r.date === newDate && r.id !== editingRecord.id);
+          if (dupOther && !confirm(`วันที่ ${formatThaiDateShort(newDate)} มีข้อมูลอยู่แล้ว ต้องการบันทึกทับหรือไม่?`)) return;
+          setDispensingRecords(prev => prev.filter(r => r.id !== editingRecord.id && r.date !== newDate).concat(rec));
+        } else {
+          const exists = dispensingRecords.find(r => r.date === newDate);
+          if (exists && !confirm(`วันที่ ${formatThaiDateShort(newDate)} มีข้อมูลอยู่แล้ว ต้องการบันทึกทับหรือไม่?`)) return;
+          setDispensingRecords(prev => [...prev.filter(r => r.date !== newDate), rec]);
+        }
+        setShowModal(false);
+      };
+
+      const totalIPD = monthlyRecords.reduce((s, r) => s + (Number(r.ipdCount)||0), 0);
+      const totalOPD = monthlyRecords.reduce((s, r) => s + (Number(r.opdCount)||0), 0);
+      let grandDisp = 0;
+      const staffTot = {};
+      activeStaff.forEach(s => {
+        const sum = monthlyRecords.reduce((a, r) => a + (Number(r.staffCounts?.[s.id])||0), 0);
+        staffTot[s.id] = sum;
+        grandDisp += sum;
+      });
+
+      return (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-bold font-prompt text-slate-800">บันทึกการจัดยาประจำวัน ({formatThaiMonthYear(currentMonth)})</h2>
+            {!isReadOnly && (
+              <button onClick={openAddModal} className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold cursor-pointer">+ เพิ่มข้อมูลประจำวัน</button>
+            )}
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-xs overflow-x-auto">
+            <table className="w-full text-center border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 font-bold border-b border-slate-300">
+                  <th className="py-3 px-3 border-r border-slate-300 bg-slate-200">วันที่</th>
+                  <th className="py-3 px-3 border-r border-slate-300 bg-blue-50">IPD</th>
+                  <th className="py-3 px-3 border-r border-slate-300 bg-blue-50">OPD</th>
+                  <th className="py-3 px-3 border-r border-slate-300 bg-blue-100">รวม</th>
+                  {activeStaff.map(s => <th key={s.id} className="py-3 px-3 border-r border-slate-300">{s.shortName}</th>)}
+                  <th className="py-3 px-3 bg-teal-100">รวมจัดยา</th>
+                  {!isReadOnly && <th className="py-3 px-3 border-l border-slate-300 w-24 no-print">จัดการ</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {monthlyRecords.length === 0 ? (
+                  <tr>
+                    <td colSpan={(isReadOnly ? 5 : 6) + activeStaff.length} className="py-8 text-center text-slate-400">
+                      ยังไม่มีข้อมูลการจัดยาในเดือน {formatThaiMonthYear(currentMonth)}
+                    </td>
+                  </tr>
+                ) : (
+                  monthlyRecords.map(r => {
+                    const pTot = (Number(r.ipdCount)||0) + (Number(r.opdCount)||0);
+                    let dTot = 0;
+                    return (
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3 border-r border-slate-300 font-semibold bg-slate-50 whitespace-nowrap">{formatThaiDateShort(r.date)}</td>
+                        <td className="py-2.5 px-3 border-r border-slate-300">{r.ipdCount}</td>
+                        <td className="py-2.5 px-3 border-r border-slate-300">{r.opdCount}</td>
+                        <td className="py-2.5 px-3 border-r border-slate-300 font-bold bg-blue-50/40">{pTot}</td>
+                        {activeStaff.map(s => { const c = Number(r.staffCounts?.[s.id])||0; dTot+=c; return <td key={s.id} className="py-2.5 px-3 border-r border-slate-300">{c}</td>; })}
+                        <td className="py-2.5 px-3 font-bold bg-teal-50">{dTot}</td>
+                        {!isReadOnly && (
+                          <td className="py-2.5 px-3 border-l border-slate-300 no-print whitespace-nowrap">
+                            <button onClick={() => openEditModal(r)} className="text-teal-600 hover:underline font-semibold mr-2.5 cursor-pointer">แก้</button>
+                            <button onClick={() => handleDeleteDay(r.id, r.date)} className="text-rose-600 hover:underline font-semibold cursor-pointer">ลบ</button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-amber-100 font-bold border-t-2 border-slate-400">
+                  <td className="py-3 px-3 border-r border-slate-400 bg-amber-200">รวมทั้งเดือน</td>
+                  <td className="py-3 px-3 border-r border-slate-400">{totalIPD}</td>
+                  <td className="py-3 px-3 border-r border-slate-400">{totalOPD}</td>
+                  <td className="py-3 px-3 border-r border-slate-400 bg-blue-200">{totalIPD+totalOPD}</td>
+                  {activeStaff.map(s => <td key={s.id} className="py-3 px-3 border-r border-slate-400">{staffTot[s.id]}</td>)}
+                  <td className="py-3 px-3 bg-teal-200">{grandDisp}</td>
+                  {!isReadOnly && <td className="py-3 px-3 border-l border-slate-400 no-print"></td>}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          {showModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-slate-100">
+                <h3 className="font-bold font-prompt text-base mb-4 text-slate-800 border-b pb-2">
+                  {editingRecord ? `แก้ไขข้อมูลการจัดยา (${formatThaiDateShort(editingRecord.date)})` : 'เพิ่มข้อมูลการจัดยาประจำวัน'}
+                </h3>
+                <form onSubmit={handleSaveDay} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">วันที่:</label>
+                    <input type="date" required value={newDate} onChange={e=>setNewDate(e.target.value)} className="w-full border border-slate-300 p-2 rounded-xl" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-blue-800 mb-1">จำนวนคนไข้ IPD:</label>
+                      <input type="number" min="0" value={newIpd} onChange={e=>setNewIpd(e.target.value)} className="w-full border border-slate-300 p-2 rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-blue-800 mb-1">จำนวนคนไข้ OPD:</label>
+                      <input type="number" min="0" value={newOpd} onChange={e=>setNewOpd(e.target.value)} className="w-full border border-slate-300 p-2 rounded-xl" />
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t">
+                    <label className="block font-semibold text-slate-700 mb-2">จำนวนจัดยาแยกตามเจ้าหน้าที่:</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {activeStaff.map(s => (
+                        <div key={s.id} className="flex justify-between items-center p-2 bg-slate-50 rounded-xl border border-slate-200">
+                          <span className="font-medium text-slate-700">{s.shortName}</span>
+                          <input type="number" min="0" value={newStaffCounts[s.id]||0} onChange={e=>setNewStaffCounts({...newStaffCounts,[s.id]:Number(e.target.value)||0})} className="w-20 border border-slate-300 text-center p-1 rounded-lg bg-white font-semibold" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-3 border-t">
+                    <button type="button" onClick={()=>setShowModal(false)} className="px-4 py-2 bg-slate-100 rounded-xl font-medium cursor-pointer">ยกเลิก</button>
+                    <button type="submit" className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl cursor-pointer">บันทึกข้อมูล</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // VIEW 4.5: ข้อมูลย้อนหลัง & จุดบันทึกอัตโนมัติ (History Archive)
+    // =========================================================================
+    function HistoryArchiveView({
+      currentMonth,
+      onSelectMonthAndView,
+      dispensingRecords,
+      staffList,
+      detailedErrors,
+      staffMatrixErrors,
+      keyingErrors,
+      snapshots,
+      lastSavedAt,
+      autoBackupFileName,
+      onPickAutoBackupFile,
+      onCreateManualSnapshot,
+      onRestoreSnapshot,
+      onDeleteSnapshot,
+      onExportMonthExcel,
+      onExportAllHistoryExcel,
+      onDownloadJsonBackup,
+      onImportJsonBackup,
+      isReadOnly = false
+    }) {
+      const [selectedYear, setSelectedYear] = useState('all');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [searchCategory, setSearchCategory] = useState('all');
+
+      const activeStaff = staffList.filter(s => s.canDispense);
+
+      // Build monthly summaries across all recorded months
+      const monthSet = new Set();
+      (dispensingRecords || []).forEach(r => r.date && monthSet.add(r.date.slice(0, 7)));
+      (detailedErrors || []).forEach(e => e.date && monthSet.add(e.date.slice(0, 7)));
+      (staffMatrixErrors || []).forEach(m => m.date && monthSet.add(m.date.slice(0, 7)));
+      (keyingErrors || []).forEach(k => k.date && monthSet.add(k.date.slice(0, 7)));
+      const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+
+      const monthlySummaries = sortedMonths.map(month => {
+        const disp = (dispensingRecords || []).filter(r => r.date.startsWith(month));
+        const det = (detailedErrors || []).filter(e => e.date.startsWith(month));
+        const mat = (staffMatrixErrors || []).filter(m => m.date.startsWith(month));
+        const key = (keyingErrors || []).filter(k => k.date.startsWith(month));
+        let totalDispensed = 0;
+        let totalPatients = 0;
+        disp.forEach(r => {
+          totalPatients += (Number(r.ipdCount)||0) + (Number(r.opdCount)||0);
+          Object.values(r.staffCounts || {}).forEach(v => { totalDispensed += Number(v)||0; });
+        });
+        return {
+          month,
+          year: month.slice(0, 4),
+          label: formatThaiMonthYear(month),
+          workingDays: disp.length,
+          totalPatients,
+          totalDispensed,
+          wrongDrug: det.filter(i => i.type === 'wrong_drug').length,
+          incompleteQty: det.filter(i => i.type === 'incomplete_qty').length,
+          incompleteBasket: det.filter(i => i.type === 'incomplete_basket').length,
+          wrongStrength: det.filter(i => i.type === 'wrong_strength').length,
+          totalDetailed: det.length,
+          matrixDisp: mat.length,
+          matrixKey: key.length
+        };
+      });
+
+      const availableYears = Array.from(new Set(monthlySummaries.map(m => m.year))).sort((a, b) => b.localeCompare(a));
+      const filteredMonths = selectedYear === 'all' ? monthlySummaries : monthlySummaries.filter(m => m.year === selectedYear);
+
+      const chartMonths = [...filteredMonths].reverse();
+      const multiMonthChartData = {
+        labels: chartMonths.map(m => m.label),
+        datasets: [
+          { label: 'ยอดจัดยา (ใบ)', data: chartMonths.map(m => m.totalDispensed), backgroundColor: '#0d9488', borderRadius: 6, yAxisID: 'y' },
+          { label: 'Mederror ยา (ครั้ง)', data: chartMonths.map(m => m.totalDetailed), backgroundColor: '#f43f5e', borderRadius: 6, yAxisID: 'y1' }
+        ]
+      };
+
+      const q = searchQuery.trim().toLowerCase();
+      const searchResults = [];
+      if (searchCategory === 'all' || searchCategory !== 'dispensing') {
+        (detailedErrors || []).forEach(item => {
+          if (searchCategory !== 'all' && item.type !== searchCategory) return;
+          const text = [item.date, formatThaiDateShort(item.date), item.targetDrug, item.errorDrug, item.drugName, item.targetQty, item.errorQty, item.notes].filter(Boolean).join(' ').toLowerCase();
+          if (!q || text.includes(q)) searchResults.push({ kind: 'error', sortDate: item.date, month: item.date?.slice(0,7), item });
+        });
+      }
+      if (searchCategory === 'all' || searchCategory === 'dispensing') {
+        (dispensingRecords || []).forEach(rec => {
+          const text = `${rec.date} ${formatThaiDateShort(rec.date)} ipd ${rec.ipdCount} opd ${rec.opdCount}`.toLowerCase();
+          if (!q || text.includes(q)) searchResults.push({ kind: 'dispensing', sortDate: rec.date, month: rec.date?.slice(0,7), item: rec });
+        });
+      }
+      searchResults.sort((a, b) => (b.sortDate||'').localeCompare(a.sortDate||''));
+      const visibleResults = searchResults.slice(0, 100);
+
+      const typeTagMap = {
+        wrong_drug: { text: '1. จัดยาผิดชนิด', cls: 'bg-rose-100 text-rose-800 border-rose-200' },
+        incomplete_qty: { text: '2. ไม่ครบจำนวน', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+        incomplete_basket: { text: '3. ไม่ครบในตะกร้า', cls: 'bg-purple-100 text-purple-800 border-purple-200' },
+        wrong_strength: { text: '4. ผิดความแรง', cls: 'bg-sky-100 text-sky-800 border-sky-200' }
+      };
+
+      const canPickFile = typeof window.showSaveFilePicker === 'function';
+
+      return (
+        <div className="space-y-6 pb-12">
+          {/* Header Banner */}
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold font-prompt text-slate-800">บันทึกข้อมูลอัตโนมัติ & เรียกดูข้อมูลย้อนหลัง</h2>
+              <p className="text-xs text-slate-500 mt-0.5">ระบบบันทึกข้อมูลลงบราวเซอร์ (localStorage + IndexedDB) อัตโนมัติทุกครั้งที่แก้ไข พร้อมดูประวัติย้อนหลังและกู้คืนจุดสำรอง</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={onCreateManualSnapshot} className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer">
+                📌 บันทึกจุดสำรองตอนนี้
+              </button>
+              <button onClick={onExportAllHistoryExcel} className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold cursor-pointer">
+                📊 ส่งออกประวัติทุกเดือน (Excel)
+              </button>
+            </div>
+          </div>
+
+          {/* Auto-Save Status Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-xs">
+              <p className="text-xs font-bold text-slate-800">สถานะบันทึกอัตโนมัติในเครื่อง</p>
+              <p className="text-xs text-emerald-700 font-semibold mt-1">● บันทึกอัตโนมัติแล้ว (localStorage + IndexedDB)</p>
+              <p className="text-2xs text-slate-500 mt-1">อัปเดตล่าสุด: {lastSavedAt || '-'}</p>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-sky-200 shadow-xs">
+              <p className="text-xs font-bold text-slate-800">บันทึกลงไฟล์คอมพิวเตอร์อัตโนมัติ (.json)</p>
+              <p className="text-2xs text-slate-500 mt-1 truncate">
+                {autoBackupFileName ? `เชื่อมต่อไฟล์: ${autoBackupFileName}` : 'เลือกไฟล์ 1 ครั้ง เพื่อซิงค์ข้อมูลลงไฟล์คอมพิวเตอร์อัตโนมัติ'}
+              </p>
+              {!isReadOnly && (
+                canPickFile ? (
+                  <button onClick={onPickAutoBackupFile} className="mt-2 px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-2xs font-bold cursor-pointer">
+                    {autoBackupFileName ? 'เปลี่ยนไฟล์อัตโนมัติ' : 'เลือกไฟล์บันทึกอัตโนมัติ (.json)'}
+                  </button>
+                ) : (
+                  <span className="inline-block mt-1.5 text-2xs text-amber-700">ใช้ปุ่มดาวน์โหลด/นำเข้าไฟล์ .json ด้านขวา</span>
+                )
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
+              <p className="text-xs font-bold text-slate-800">สำรอง / กู้คืนข้ามเครื่อง (.json)</p>
+              <p className="text-2xs text-slate-500 mt-1">ดาวน์โหลดเก็บไว้ หรือนำเข้าไฟล์เดิมกลับมาดูย้อนหลัง</p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <button onClick={onDownloadJsonBackup} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-2xs font-bold border border-slate-200 cursor-pointer">
+                  ⬇️ ดาวน์โหลด .json
+                </button>
+                {!isReadOnly && (
+                  <label className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg text-2xs font-bold border border-teal-200 cursor-pointer">
+                    ⬆️ กู้คืนจากไฟล์
+                    <input type="file" accept=".json" onChange={onImportJsonBackup} className="hidden" />
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 1: Monthly Archive */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 font-prompt">สรุปข้อมูลย้อนหลังรายเดือน ({filteredMonths.length} เดือนที่มีข้อมูล)</h3>
+                <p className="text-2xs text-slate-500">ดูยอดรวมย้อนหลังแต่ละเดือน หรือคลิก "เปิดดู" เพื่อสลับไปเดือนนั้นทันที</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500 font-medium">กรองตามปี:</span>
+                <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-semibold text-slate-700 cursor-pointer">
+                  <option value="all">ทุกปีทั้งหมด ({monthlySummaries.length} เดือน)</option>
+                  {availableYears.map(yr => <option key={yr} value={yr}>พ.ศ. {Number(yr)+543} ({yr})</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {chartMonths.length > 0 && (
+                <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/70">
+                  <h4 className="text-xs font-bold text-slate-700 font-prompt mb-2">กราฟเปรียบเทียบยอดจัดยาและ Mederror ย้อนหลังรายเดือน</h4>
+                  <ChartBox
+                    type="bar"
+                    data={multiMonthChartData}
+                    options={{
+                      plugins: { legend: { position: 'top' } },
+                      scales: {
+                        y: { type: 'linear', position: 'left', beginAtZero: true },
+                        y1: { type: 'linear', position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, ticks: { stepSize: 1 } }
+                      }
+                    }}
+                    height="220px"
+                  />
+                </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-center border-collapse border border-slate-200">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-300">
+                      <th className="py-2.5 px-3 text-left border-r border-slate-200">เดือน / ปี</th>
+                      <th className="py-2.5 px-2.5 border-r border-slate-200">วันบันทึก</th>
+                      <th className="py-2.5 px-2.5 border-r border-slate-200">ผู้ป่วยรวม</th>
+                      <th className="py-2.5 px-2.5 border-r border-slate-200 text-teal-800">ยอดจัดยา</th>
+                      <th className="py-2.5 px-2 border-r border-slate-200 text-rose-700">ผิดชนิด</th>
+                      <th className="py-2.5 px-2 border-r border-slate-200 text-amber-700">ไม่ครบจำนวน</th>
+                      <th className="py-2.5 px-2 border-r border-slate-200 text-purple-700">ไม่ครบตะกร้า</th>
+                      <th className="py-2.5 px-2 border-r border-slate-200 text-sky-700">ผิดความแรง</th>
+                      <th className="py-2.5 px-2.5 border-r border-slate-200 bg-rose-50 text-rose-800">รวม Mederror ยา</th>
+                      <th className="py-2.5 px-2.5 border-r border-slate-200">รายบุคคล (จัด/คีย์)</th>
+                      <th className="py-2.5 px-3">เรียกดู</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredMonths.length === 0 ? (
+                      <tr><td colSpan={11} className="py-8 text-slate-400">ยังไม่มีข้อมูลย้อนหลัง</td></tr>
+                    ) : (
+                      filteredMonths.map(m => (
+                        <tr key={m.month} className={`hover:bg-slate-50 ${m.month === currentMonth ? 'bg-teal-50/40' : ''}`}>
+                          <td className="py-2.5 px-3 text-left font-bold text-slate-900 border-r border-slate-200 whitespace-nowrap">
+                            {m.label}
+                            {m.month === currentMonth && <span className="ml-2 text-2xs px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 font-semibold">กำลังดู</span>}
+                          </td>
+                          <td className="py-2.5 px-2.5 border-r border-slate-200">{m.workingDays}</td>
+                          <td className="py-2.5 px-2.5 border-r border-slate-200">{m.totalPatients.toLocaleString()}</td>
+                          <td className="py-2.5 px-2.5 border-r border-slate-200 font-bold text-teal-700">{m.totalDispensed.toLocaleString()}</td>
+                          <td className="py-2.5 px-2 border-r border-slate-200 font-semibold text-rose-600">{m.wrongDrug}</td>
+                          <td className="py-2.5 px-2 border-r border-slate-200 font-semibold text-amber-600">{m.incompleteQty}</td>
+                          <td className="py-2.5 px-2 border-r border-slate-200 font-semibold text-purple-600">{m.incompleteBasket}</td>
+                          <td className="py-2.5 px-2 border-r border-slate-200 font-semibold text-sky-600">{m.wrongStrength}</td>
+                          <td className="py-2.5 px-2.5 border-r border-slate-200 bg-rose-50/40 font-extrabold text-rose-700">{m.totalDetailed}</td>
+                          <td className="py-2.5 px-2.5 border-r border-slate-200 text-slate-600">{m.matrixDisp} / {m.matrixKey}</td>
+                          <td className="py-2.5 px-3 whitespace-nowrap space-x-1">
+                            <button onClick={() => onSelectMonthAndView(m.month, 'detailed_tables')} className="px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-2xs font-bold cursor-pointer">เปิดดู</button>
+                            <button onClick={() => onSelectMonthAndView(m.month, 'dashboard')} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-2xs font-bold border border-slate-200 cursor-pointer">แดชบอร์ด</button>
+                            <button onClick={() => onExportMonthExcel(m.month)} className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-2xs font-bold border border-emerald-200 cursor-pointer">Excel</button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Global Search */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 font-prompt">ค้นหาข้อมูลย้อนหลังข้ามทุกเดือน (Global Search)</h3>
+                <p className="text-2xs text-slate-500">ค้นหาชื่อยา คู่ยา หรือวันที่จากข้อมูลทั้งหมดทุกเดือน (สูงสุด 100 รายการล่าสุด)</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  placeholder="🔍 พิมพ์ชื่อยา หรือวันที่..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl w-56"
+                />
+                <select value={searchCategory} onChange={e => setSearchCategory(e.target.value)} className="text-xs bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-semibold text-slate-700 cursor-pointer">
+                  <option value="all">ทุกประเภท</option>
+                  <option value="wrong_drug">1. จัดยาผิดชนิด</option>
+                  <option value="incomplete_qty">2. จัดยาไม่ครบจำนวน</option>
+                  <option value="incomplete_basket">3. ไม่ครบในตะกร้า</option>
+                  <option value="wrong_strength">4. จัดยาผิดความแรง</option>
+                  <option value="dispensing">การจัดยาประจำวัน</option>
+                </select>
+              </div>
+            </div>
+            <div className="p-4 max-h-96 overflow-y-auto">
+              {visibleResults.length === 0 ? (
+                <p className="text-center text-xs text-slate-400 py-8">ไม่พบข้อมูลที่ตรงกับคำค้นหา</p>
+              ) : (
+                <div className="divide-y divide-slate-100 text-xs">
+                  {visibleResults.map((entry, idx) => {
+                    if (entry.kind === 'error') {
+                      const i = entry.item;
+                      const tag = typeTagMap[i.type] || { text: i.type, cls: 'bg-slate-100 text-slate-700 border-slate-200' };
+                      return (
+                        <div key={`err-${i.id}-${idx}`} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50 px-2 rounded-lg">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-slate-700 w-20 shrink-0">{formatThaiDateShort(i.date)}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-2xs font-bold border ${tag.cls}`}>{tag.text}</span>
+                            {i.type === 'wrong_drug' || i.type === 'wrong_strength' ? (
+                              <span className="font-semibold text-slate-800"><span className="text-emerald-700">{i.targetDrug}</span> ➔ <span className="text-rose-700">{i.errorDrug}</span></span>
+                            ) : i.type === 'incomplete_qty' ? (
+                              <span className="font-semibold text-slate-800">{i.drugName} <span className="text-slate-500">({i.targetQty} ➔ {i.errorQty})</span></span>
+                            ) : (
+                              <span className="font-semibold text-purple-900">{i.drugName} (ขาด {i.missingCount || 1} รายการ)</span>
+                            )}
+                          </div>
+                          <button onClick={() => onSelectMonthAndView(entry.month, 'detailed_tables')} className="text-2xs text-teal-700 hover:underline font-semibold shrink-0 cursor-pointer">
+                            เปิดเดือน {formatThaiMonthYear(entry.month)} ➔
+                          </button>
+                        </div>
+                      );
+                    } else {
+                      const rec = entry.item;
+                      const totStaff = activeStaff.reduce((acc, s) => acc + (Number(rec.staffCounts?.[s.id])||0), 0);
+                      return (
+                        <div key={`disp-${rec.id}-${idx}`} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50 px-2 rounded-lg">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-slate-700 w-20 shrink-0">{formatThaiDateShort(rec.date)}</span>
+                            <span className="px-2 py-0.5 rounded-full text-2xs font-bold border bg-teal-50 text-teal-800 border-teal-200">จัดยาประจำวัน</span>
+                            <span className="text-slate-700 font-medium">IPD: <strong>{rec.ipdCount}</strong> | OPD: <strong>{rec.opdCount}</strong> | รวมจัดยา: <strong className="text-teal-700">{totStaff} ใบ</strong></span>
+                          </div>
+                          <button onClick={() => onSelectMonthAndView(entry.month, 'dispensing')} className="text-2xs text-teal-700 hover:underline font-semibold shrink-0 cursor-pointer">
+                            เปิดเดือน {formatThaiMonthYear(entry.month)} ➔
+                          </button>
+                        </div>
+                      );
+                    }
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 3: Auto-Save Snapshots */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 font-prompt">จุดบันทึกย้อนหลังอัตโนมัติ (Auto-Save Snapshots)</h3>
+                <p className="text-2xs text-slate-500">ระบบสำรองจุดบันทึกให้อัตโนมัติเมื่อแก้ไขหรือก่อนล้างข้อมูล สามารถย้อนเวลากลับไปจุดเดิมได้ทันที</p>
+              </div>
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">{snapshots.length} จุดสำรอง</span>
+            </div>
+            <div className="p-4">
+              {snapshots.length === 0 ? (
+                <p className="text-center text-xs text-slate-400 py-8">ยังไม่มีจุดบันทึกสำรอง ระบบจะบันทึกให้อัตโนมัติเมื่อมีการแก้ไขข้อมูล หรือกดปุ่ม "📌 บันทึกจุดสำรองตอนนี้" ด้านบน</p>
+              ) : (
+                <div className="divide-y divide-slate-100 text-xs">
+                  {snapshots.map(snap => (
+                    <div key={snap.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-slate-900">{formatDateTimeThai(snap.createdAt)}</span>
+                          <span className="px-2 py-0.5 rounded-full text-2xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">{snap.label || 'บันทึกอัตโนมัติ'}</span>
+                        </div>
+                        <p className="text-2xs text-slate-500 mt-1">
+                          จัดยา {snap.summary?.dispensingDays || 0} วัน • ตารางยา 4 กลุ่ม {snap.summary?.detailedCount || 0} รายการ • รายบุคคล(จัด/คีย์) {snap.summary?.matrixCount || 0}/{snap.summary?.keyingCount || 0} ครั้ง
+                        </p>
+                      </div>
+                      {!isReadOnly && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => onRestoreSnapshot(snap)} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-2xs font-bold cursor-pointer">
+                            🔄 กู้คืนจุดนี้
+                          </button>
+                          <button onClick={() => onDeleteSnapshot(snap.id)} className="px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded-xl text-2xs font-bold cursor-pointer">
+                            ลบ
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // VIEW 5: Settings & Drug Catalog
+    // =========================================================================
+    function SettingsView({ staffList, setStaffList, drugCatalog, setDrugCatalog, onClearAll }) {
+      const [newStaffName, setNewStaffName] = useState('');
+      const [newStaffShort, setNewStaffShort] = useState('');
+      const [newDrugName, setNewDrugName] = useState('');
+      const [drugSearch, setDrugSearch] = useState('');
+
+      const handleAddStaff = (e) => {
+        e.preventDefault();
+        if (!newStaffName || !newStaffShort) return;
+        setStaffList([...staffList, { id: `st-${Date.now()}`, fullName: newStaffName, shortName: newStaffShort, canDispense: true, canKey: false }]);
+        setNewStaffName(''); setNewStaffShort('');
+      };
+
+      const handleAddDrug = (e) => {
+        e.preventDefault();
+        const trimmed = newDrugName.trim();
+        if (!trimmed) return;
+        if ((drugCatalog || []).some(d => d.name.toLowerCase() === trimmed.toLowerCase())) {
+          alert(`มีรายการยา "${trimmed}" อยู่ในคลังแล้ว`);
+          return;
+        }
+        setDrugCatalog([...(drugCatalog || []), { id: `drug-${Date.now()}`, name: trimmed }]);
+        setNewDrugName('');
+      };
+
+      return (
+        <div className="space-y-6 pb-10">
+          {/* Drug Catalog Management */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold font-prompt text-sm text-slate-800">คลังรายการยาสำหรับเลือกบันทึก ({(drugCatalog || []).length} รายการ)</h3>
+                <p className="text-xs text-slate-500">เพิ่ม/ลบ ชื่อยา เพื่อใช้เลือกในแบบฟอร์มบันทึก 4 ตาราง</p>
+              </div>
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อยา..."
+                value={drugSearch}
+                onChange={e => setDrugSearch(e.target.value)}
+                className="border border-slate-200 px-3 py-1.5 rounded-xl text-xs w-full sm:w-60"
+              />
+            </div>
+
+            <form onSubmit={handleAddDrug} className="flex flex-col sm:flex-row gap-2 text-xs">
+              <input type="text" required placeholder="ชื่อยาใหม่ เช่น risperidone 1 mg, metformin 500 mg" value={newDrugName} onChange={e=>setNewDrugName(e.target.value)} className="flex-1 border p-2 rounded-xl" />
+              <button type="submit" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl cursor-pointer">+ เพิ่มยา</button>
+            </form>
+
+            <div className="max-h-64 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {(drugCatalog || [])
+                .filter(d => !drugSearch.trim() || d.name.toLowerCase().includes(drugSearch.toLowerCase()))
+                .map(d => (
+                  <div key={d.id} className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center text-xs">
+                    <p className="font-bold text-slate-800 truncate pr-2">{d.name}</p>
+                    <button onClick={() => setDrugCatalog(drugCatalog.filter(x => x.id !== d.id))} className="text-rose-600 hover:underline shrink-0 cursor-pointer">ลบ</button>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 border border-slate-200">
+            <h3 className="font-bold font-prompt text-sm mb-4">จัดการรายชื่อเจ้าหน้าที่ ({staffList.length} ท่าน)</h3>
+            <div className="divide-y mb-4 text-xs">
+              {staffList.map(s => (
+                <div key={s.id} className="py-2 flex justify-between items-center">
+                  <span><strong>{s.fullName}</strong> ({s.shortName})</span>
+                  <button onClick={()=>setStaffList(staffList.filter(x=>x.id!==s.id))} className="text-rose-600 cursor-pointer">ลบ</button>
+                </div>
+              ))}
+            </div>
+            <form onSubmit={handleAddStaff} className="flex gap-2 text-xs">
+              <input type="text" required placeholder="ชื่อ-สกุลเต็ม" value={newStaffName} onChange={e=>setNewStaffName(e.target.value)} className="border p-2 rounded-lg" />
+              <input type="text" required placeholder="ชื่อย่อ" value={newStaffShort} onChange={e=>setNewStaffShort(e.target.value)} className="border p-2 rounded-lg w-28" />
+              <button type="submit" className="px-4 py-2 bg-teal-600 text-white font-bold rounded-lg cursor-pointer">เพิ่ม</button>
+            </form>
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 flex justify-between items-center">
+            <div><h4 className="font-bold text-sm">ล้างข้อมูล Mederror เป็น 0</h4><p className="text-xs text-slate-500">รีเซ็ตข้อมูลในเดือนนี้ให้เป็น 0</p></div>
+            <button onClick={onClearAll} className="px-4 py-2 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer">ล้างข้อมูลเป็น 0</button>
+          </div>
+        </div>
+      );
+    }
+
+    // Print Modal
+    function PrintModal({ currentMonth, dispensingRecords, staffList, detailedErrors, onClose }) {
+      const monthTitle = formatThaiMonthYear(currentMonth);
+      const monthlyDetailed = detailedErrors.filter(e => e.date.startsWith(currentMonth));
+      const wd = monthlyDetailed.filter(e => e.type === 'wrong_drug');
+      const ws = monthlyDetailed.filter(e => e.type === 'wrong_strength');
+      return (
+        <div className="fixed inset-0 bg-slate-900/80 flex justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full my-6 overflow-hidden flex flex-col shadow-2xl">
+            <div className="bg-slate-800 text-white px-6 py-3 flex justify-between items-center no-print">
+              <span className="font-bold text-sm">พิมพ์รายงานสรุปประจำเดือน</span>
+              <div className="flex gap-2">
+                <button onClick={() => window.print()} className="px-4 py-1.5 bg-teal-500 text-white font-bold text-xs rounded-lg cursor-pointer">สั่งพิมพ์</button>
+                <button onClick={onClose} className="px-3 py-1.5 bg-slate-700 text-white text-xs rounded-lg cursor-pointer">ปิด</button>
+              </div>
+            </div>
+            <div className="p-8 text-slate-900 space-y-4 text-xs bg-white">
+              <h2 className="text-center text-base font-bold font-prompt">รายงานสรุป Mederror ห้องยา ประจำเดือน {monthTitle}</h2>
+              <p className="text-center text-slate-600">
+                1. จัดยาผิดชนิด: {wd.length} | 2. จัดยาไม่ครบจำนวน: {monthlyDetailed.filter(e=>e.type==='incomplete_qty').length} | 3. ไม่ครบในตะกร้า: {monthlyDetailed.filter(e=>e.type==='incomplete_basket').length} | 4. จัดยาผิดความแรง: {ws.length}
+              </p>
+              <h3 className="font-bold text-xs">1. รายการจัดยาผิดชนิด ({wd.length} ครั้ง)</h3>
+              <table className="w-full text-left border-collapse border border-slate-400 text-2xs">
+                <thead><tr className="bg-slate-100"><th className="p-1.5 border">วันที่</th><th className="p-1.5 border">รายการยาที่ต้องการ</th><th className="p-1.5 border">ความคลาดเคลื่อน (ยาที่จัดผิด)</th></tr></thead>
+                <tbody>
+                  {wd.length === 0 ? <tr><td colSpan={3} className="p-2 text-center text-slate-400">ไม่มีรายการ (0)</td></tr> : wd.map(i=><tr key={i.id}><td className="p-1 border">{formatThaiDateShort(i.date)}</td><td className="p-1 border">{i.targetDrug}</td><td className="p-1 border">{i.errorDrug}</td></tr>)}
+                </tbody>
+              </table>
+              <h3 className="font-bold text-xs pt-2">4. รายการจัดยาผิดความแรง ({ws.length} ครั้ง)</h3>
+              <table className="w-full text-left border-collapse border border-slate-400 text-2xs">
+                <thead><tr className="bg-slate-100"><th className="p-1.5 border">วันที่</th><th className="p-1.5 border">รายการยาที่ต้องการ</th><th className="p-1.5 border">ความคลาดเคลื่อน (ความแรงที่จัดผิด)</th></tr></thead>
+                <tbody>
+                  {ws.length === 0 ? <tr><td colSpan={3} className="p-2 text-center text-slate-400">ไม่มีรายการ (0)</td></tr> : ws.map(i=><tr key={i.id}><td className="p-1 border">{formatThaiDateShort(i.date)}</td><td className="p-1 border">{i.targetDrug}</td><td className="p-1 border">{i.errorDrug}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ShareModalHtml({ allState, currentMonth, onClose }) {
+      const [snapshotUrl, setSnapshotUrl] = useState('');
+      const [liveUrl, setLiveUrl] = useState('');
+      const [copied, setCopied] = useState('');
+
+      useEffect(() => {
+        (async () => {
+          const token = await encodeHtmlSharePayload(allState, currentMonth);
+          const u1 = new URL(window.location.href);
+          u1.searchParams.set('mode', 'executive');
+          u1.hash = `share=${token}`;
+          setSnapshotUrl(u1.toString());
+
+          const u2 = new URL(window.location.href);
+          u2.hash = '';
+          u2.searchParams.set('mode', 'executive');
+          setLiveUrl(u2.toString());
+        })();
+      }, [allState, currentMonth]);
+
+      const copyUrl = async (txt, key) => {
+        try { await navigator.clipboard.writeText(txt); } catch {}
+        setCopied(key);
+        setTimeout(() => setCopied(''), 2000);
+      };
+
+      return (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-4 bg-gradient-to-r from-teal-700 to-emerald-700 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-sm font-bold font-prompt">🔗 แชร์ลิงก์ให้ผู้บริหารดูออนไลน์ (Read-Only)</h3>
+                <p className="text-2xs text-teal-100">เปิดดูแดชบอร์ด ตาราง 4 กลุ่ม รายบุคคล และประวัติย้อนหลังได้โดยไม่แก้ไขข้อมูล</p>
+              </div>
+              <button onClick={onClose} className="px-2.5 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold cursor-pointer">ปิด</button>
+            </div>
+            <div className="p-5 space-y-4 text-xs">
+              <div className="rounded-xl border border-teal-200 bg-teal-50/40 p-4 space-y-2">
+                <p className="font-bold text-slate-800">แบบที่ 1: ลิงก์แชร์ข้อมูลทันที (Snapshot Link — ใช้ได้บน Netlify / GitHub Pages)</p>
+                <div className="flex gap-2">
+                  <input type="text" readOnly value={snapshotUrl || 'กำลังสร้างลิงก์...'} className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-2xs font-mono" />
+                  <button onClick={() => copyUrl(snapshotUrl, 'snap')} className="px-3.5 py-2 bg-teal-600 text-white rounded-xl font-bold cursor-pointer shrink-0">
+                    {copied === 'snap' ? 'คัดลอกแล้ว ✓' : 'คัดลอกลิงก์'}
+                  </button>
+                </div>
+                {snapshotUrl && (
+                  <a href={snapshotUrl} target="_blank" rel="noreferrer" className="inline-block text-2xs font-bold text-emerald-700 hover:underline">
+                    ↗ ทดลองเปิดดูโหมดผู้บริหารในแท็บใหม่
+                  </a>
+                )}
+              </div>
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-2">
+                <p className="font-bold text-slate-800">แบบที่ 2: ลิงก์ดูข้อมูลสด (Cloud Server Live Link)</p>
+                <div className="flex gap-2">
+                  <input type="text" readOnly value={liveUrl} className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-2xs font-mono" />
+                  <button onClick={() => copyUrl(liveUrl, 'live')} className="px-3.5 py-2 bg-indigo-600 text-white rounded-xl font-bold cursor-pointer shrink-0">
+                    {copied === 'live' ? 'คัดลอกแล้ว ✓' : 'คัดลอกลิงก์'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
